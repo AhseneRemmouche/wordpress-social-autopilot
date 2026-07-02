@@ -1,0 +1,166 @@
+import type { GeneratedContent, Platform, PlatformAccount, PublishJob } from "@prisma/client";
+import { type Mock, beforeEach, describe, expect, it, vi } from "vitest";
+
+const h = vi.hoisted(() => ({ publishMock: vi.fn() }));
+
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    publishJob: { findUnique: vi.fn(), update: vi.fn() },
+    platformAccount: { findUnique: vi.fn() },
+    generatedContent: { update: vi.fn() },
+    // $transaction just runs the array of (already-issued) promises.
+    $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
+  },
+}));
+vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
+vi.mock("@/lib/publishers", () => ({
+  getPublisher: () => ({
+    platform: "LINKEDIN",
+    capabilities: { autoPublish: true, requiresMedia: false },
+    publish: h.publishMock,
+  }),
+}));
+
+import { writeAudit } from "@/lib/audit";
+import { prisma } from "@/lib/prisma";
+import { processJob } from "@/lib/queue/process-job";
+
+const findJob = prisma.publishJob.findUnique as unknown as Mock;
+const updateJob = prisma.publishJob.update as unknown as Mock;
+const findAccount = prisma.platformAccount.findUnique as unknown as Mock;
+const updateContent = prisma.generatedContent.update as unknown as Mock;
+const writeAuditMock = writeAudit as unknown as Mock;
+
+function jobRow(over: Partial<PublishJob> = {}): PublishJob & { content: GeneratedContent } {
+  return {
+    id: "job-1",
+    contentId: "gc-1",
+    status: "QUEUED",
+    attempts: 0,
+    maxAttempts: 3,
+    nextRunAt: new Date(0),
+    lastError: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    content: {
+      id: "gc-1",
+      postId: "wp-1",
+      platform: "LINKEDIN" as Platform,
+      body: "Body https://blog.example.com/x",
+      hashtags: ["#a"],
+      link: "https://blog.example.com/x",
+      charCount: 30,
+      status: "APPROVED",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    } as GeneratedContent,
+    ...over,
+  } as PublishJob & { content: GeneratedContent };
+}
+
+const CONNECTED = { platform: "LINKEDIN", status: "CONNECTED" } as PlatformAccount;
+
+/** Return the data payload of the publishJob.update call that set a given status. */
+function jobUpdateFor(status: string): Record<string, unknown> | undefined {
+  const call = updateJob.mock.calls.find((c) => c[0]?.data?.status === status);
+  return call?.[0]?.data as Record<string, unknown> | undefined;
+}
+function contentUpdateStatus(): unknown {
+  return updateContent.mock.calls.at(-1)?.[0]?.data?.status;
+}
+
+beforeEach(() => {
+  findJob.mockReset().mockResolvedValue(jobRow());
+  updateJob.mockReset().mockResolvedValue({});
+  findAccount.mockReset().mockResolvedValue(CONNECTED);
+  updateContent.mockReset().mockResolvedValue({});
+  writeAuditMock.mockReset();
+  h.publishMock.mockReset();
+});
+
+describe("processJob (plan §8 / FR-016/027/030)", () => {
+  it("success → content PUBLISHED, job SUCCEEDED, SUCCESS audit with externalId", async () => {
+    h.publishMock.mockResolvedValue({ ok: true, externalId: "urn:li:123" });
+
+    await processJob("job-1");
+
+    expect(jobUpdateFor("SUCCEEDED")).toBeDefined();
+    expect(contentUpdateStatus()).toBe("PUBLISHED");
+    expect(writeAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "SUCCESS", externalId: "urn:li:123" }),
+    );
+  });
+
+  it("retryable failure with attempts remaining → re-QUEUED with future nextRunAt", async () => {
+    h.publishMock.mockResolvedValue({ ok: false, retryable: true, error: "HTTP 429" });
+
+    await processJob("job-1");
+
+    const requeue = jobUpdateFor("QUEUED");
+    expect(requeue).toBeDefined();
+    expect((requeue?.nextRunAt as Date).getTime()).toBeGreaterThanOrEqual(Date.now() - 5);
+    expect(requeue?.lastError).toBe("HTTP 429");
+    // Content is NOT marked failed — it will be retried.
+    expect(updateContent).not.toHaveBeenCalled();
+  });
+
+  it("retryable failure on the last attempt → permanent FAILED", async () => {
+    findJob.mockResolvedValue(jobRow({ attempts: 2, maxAttempts: 3 })); // this run = attempt 3
+    h.publishMock.mockResolvedValue({ ok: false, retryable: true, error: "HTTP 500" });
+
+    await processJob("job-1");
+
+    expect(jobUpdateFor("FAILED")).toBeDefined();
+    expect(contentUpdateStatus()).toBe("FAILED");
+    // No re-queue after exhaustion.
+    expect(jobUpdateFor("QUEUED")).toBeUndefined();
+  });
+
+  it("non-retryable failure → immediate FAILED (no re-queue)", async () => {
+    h.publishMock.mockResolvedValue({ ok: false, retryable: false, error: "bad request" });
+
+    await processJob("job-1");
+
+    expect(jobUpdateFor("FAILED")).toBeDefined();
+    expect(contentUpdateStatus()).toBe("FAILED");
+    expect(jobUpdateFor("QUEUED")).toBeUndefined();
+  });
+
+  it("account not connected → content MANUAL_REQUIRED, job FAILED, publisher never called", async () => {
+    findAccount.mockResolvedValue({ platform: "LINKEDIN", status: "TOKEN_EXPIRED" } as PlatformAccount);
+
+    await processJob("job-1");
+
+    expect(h.publishMock).not.toHaveBeenCalled();
+    expect(jobUpdateFor("FAILED")).toBeDefined();
+    expect(contentUpdateStatus()).toBe("MANUAL_REQUIRED");
+  });
+
+  it("missing account → content MANUAL_REQUIRED", async () => {
+    findAccount.mockResolvedValue(null);
+    await processJob("job-1");
+    expect(contentUpdateStatus()).toBe("MANUAL_REQUIRED");
+    expect(h.publishMock).not.toHaveBeenCalled();
+  });
+
+  it("a thrown publisher error is treated as retryable", async () => {
+    h.publishMock.mockRejectedValue(new Error("socket hang up"));
+    await processJob("job-1");
+    const requeue = jobUpdateFor("QUEUED");
+    expect(requeue).toBeDefined();
+    expect(requeue?.lastError).toContain("socket hang up");
+  });
+
+  it("skips a job that is not QUEUED (already claimed)", async () => {
+    findJob.mockResolvedValue(jobRow({ status: "RUNNING" }));
+    await processJob("job-1");
+    expect(h.publishMock).not.toHaveBeenCalled();
+    expect(updateJob).not.toHaveBeenCalled();
+  });
+
+  it("skips a missing job", async () => {
+    findJob.mockResolvedValue(null);
+    await processJob("gone");
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+});

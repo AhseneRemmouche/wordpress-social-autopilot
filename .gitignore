@@ -1,0 +1,37 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts.timestamp
+
+# production
+/build
+
+# testing / coverage
+/coverage
+
+# prisma
+/prisma/*.db
+
+# env (never commit real secrets)
+.env
+.env*.local
+
+# local preview artifacts (screenshots, playwright output)
+/.playwright-mcp/
+/dashboard-light.png
+/dashboard-dark.png
+/post-detail-light.png
+/connections-light.png
+/connections-dark.png
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vscode/*
+!.vscode/extensions.json

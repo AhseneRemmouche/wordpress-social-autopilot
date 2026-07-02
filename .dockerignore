@@ -1,0 +1,16 @@
+node_modules
+.next
+coverage
+.git
+.github
+tests
+*.log
+npm-debug.log*
+# Never bake secrets into an image or send them in the build context.
+.env
+.env.*
+!.env.example
+Dockerfile
+Dockerfile.worker
+.dockerignore
+README.md

@@ -1,0 +1,142 @@
+// WordPress Social Autopilot — Prisma schema (single source of truth, Principle V).
+// Models per specs/001-social-autopilot/data-model.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Prisma 7: the connection URL lives in prisma.config.ts (CLI) and a driver
+  // adapter is passed to the PrismaClient constructor at runtime.
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Platform {
+  LINKEDIN
+  FACEBOOK
+  INSTAGRAM
+  X
+  TIKTOK
+  YOUTUBE
+}
+
+enum ContentStatus {
+  PENDING // generated, awaiting approval or queueing
+  APPROVED // approved by owner, enqueued
+  REJECTED // owner rejected; never publishes
+  PUBLISHED // successfully posted to platform
+  FAILED // exhausted retries / permanent failure
+  MANUAL_REQUIRED // no API path (YouTube) or audit/media gap (TikTok/IG)
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum AccountStatus {
+  CONNECTED
+  TOKEN_EXPIRED
+  DISCONNECTED
+}
+
+enum AuditOutcome {
+  ATTEMPT
+  SUCCESS
+  FAILURE
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+/// The published WordPress article that triggered an automation run.
+model WordPressPost {
+  id               String             @id @default(cuid())
+  wpPostId         String             @unique // dedupe key (FR-006)
+  title            String
+  content          String             @db.Text
+  excerpt          String             @db.Text
+  featuredImageUrl String? // required for IG/TikTok publish
+  url              String // backlink target (FR-009)
+  categories       String[]
+  tags             String[]
+  sourceComplete   Boolean            @default(true) // false if NovaMira backfill was needed
+  receivedAt       DateTime           @default(now())
+  generatedAt      DateTime? // null until the worker generation pass completes
+  generatedContent GeneratedContent[]
+}
+
+/// One piece of platform-specific content — one row per platform per post.
+model GeneratedContent {
+  id        String        @id @default(cuid())
+  postId    String
+  post      WordPressPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform  Platform
+  body      String        @db.Text
+  hashtags  String[]
+  link      String // backlink (always present, FR-009)
+  charCount Int // post-truncation length (FR-011)
+  status    ContentStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  jobs      PublishJob[]
+  auditLogs AuditLog[]
+
+  @@unique([postId, platform]) // exactly one content row per platform per post
+}
+
+/// Durable publish-queue row (publish-only; generation is a separate worker pass).
+model PublishJob {
+  id          String           @id @default(cuid())
+  contentId   String
+  content     GeneratedContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  status      JobStatus        @default(QUEUED)
+  attempts    Int              @default(0)
+  maxAttempts Int              @default(3) // FR-028
+  nextRunAt   DateTime         @default(now()) // backoff schedule
+  lastError   String? // secret-free message
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([status, nextRunAt]) // worker poll
+}
+
+/// The owner's connection to one social platform (one table, platform column).
+model PlatformAccount {
+  id                String        @id @default(cuid())
+  platform          Platform      @unique // single owner ⇒ one row per platform
+  status            AccountStatus @default(DISCONNECTED) // FR-020
+  accessToken       String? // AES-256-GCM ciphertext (FR-018)
+  refreshToken      String? // AES-256-GCM ciphertext; rotates (X/TikTok)
+  expiresAt         DateTime?
+  scope             String?
+  autoPublish       Boolean       @default(false) // per-platform toggle (FR-025)
+  externalAccountId String?
+  fbPageId          String? // Facebook page (Meta)
+  igUserId          String? // Instagram business user (Meta)
+  metadata          Json?
+  connectedAt       DateTime?
+  updatedAt         DateTime      @updatedAt
+}
+
+/// One row per publish attempt/success/failure (Principle V; no secrets).
+model AuditLog {
+  id           String           @id @default(cuid())
+  contentId    String
+  content      GeneratedContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  platform     Platform
+  attempt      Int
+  outcome      AuditOutcome
+  externalId   String?
+  errorContext Json? // request/response context, no secrets (FR-027)
+  createdAt    DateTime         @default(now())
+
+  @@index([contentId])
+}

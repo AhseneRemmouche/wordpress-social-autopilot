@@ -1,0 +1,57 @@
+# WordPress Social Autopilot — full local/self-hosted stack:
+# PostgreSQL + web app + queue worker.
+#
+# Secrets come from `.env` (env_file); the internal DATABASE_URL is derived from
+# the POSTGRES_* vars so the services reach the `postgres` service (NOT the host
+# DATABASE_URL, which is for non-Docker local dev). Each app container runs
+# `scripts/start.sh`, which applies migrations (advisory-lock-safe) then starts.
+# Bring it up with:  docker compose up --build
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wsa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wsa}
+      POSTGRES_DB: ${POSTGRES_DB:-wordpress_social_autopilot}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wsa} -d ${POSTGRES_DB:-wordpress_social_autopilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wsa}:${POSTGRES_PASSWORD:-wsa}@postgres:5432/${POSTGRES_DB:-wordpress_social_autopilot}?schema=public
+    command: ["sh", "scripts/start.sh", "web"] # migrate deploy + next start
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wsa}:${POSTGRES_PASSWORD:-wsa}@postgres:5432/${POSTGRES_DB:-wordpress_social_autopilot}?schema=public
+    command: ["sh", "scripts/start.sh", "worker"] # migrate deploy + queue worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

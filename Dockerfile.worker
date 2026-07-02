@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+# Long-lived queue worker (src/worker/index.ts). Multi-stage; Node 22.
+# Runs the two-pass tick (generation + publish) on an interval — the alternative
+# to the serverless /api/worker/tick cron route.
+
+# ---------- Base ----------
+FROM node:22-slim AS base
+WORKDIR /app
+# Prisma needs OpenSSL on Debian slim.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production
+
+# ---------- Dependencies (all: the worker runs via tsx, a devDependency) ----------
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# ---------- Build (prisma generate) ----------
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
+    npx prisma generate
+
+# ---------- Runner ----------
+FROM base AS runner
+# The worker executes TypeScript via tsx (dev dep), so keep the full build
+# node_modules (tsx + the generated Prisma client). tsx resolves the @/* path
+# alias from tsconfig.json at runtime.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/src ./src
+# Schema + migrations + config so this image can run `prisma migrate deploy`.
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
+COPY --from=build /app/scripts ./scripts
+USER node
+# Runtime env (DATABASE_URL, ANTHROPIC_API_KEY, TOKEN_ENCRYPTION_KEY, OAuth
+# credentials, WORKER_POLL_MS, …) MUST be provided by the container environment.
+# start.sh runs `prisma migrate deploy`, then `npm run worker`.
+CMD ["sh", "scripts/start.sh", "worker"]

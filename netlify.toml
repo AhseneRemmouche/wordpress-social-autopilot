@@ -1,0 +1,11 @@
+# Netlify build config. The Next.js runtime (@netlify/plugin-nextjs) is
+# auto-detected and installed by Netlify — no plugin declaration needed.
+# `prisma generate` must run before `next build` so the Prisma client exists
+# (mirrors the Vercel buildCommand). Prisma 7 uses a JS driver adapter, so no
+# native query-engine binary is bundled.
+
+[build]
+  command = "prisma generate && next build"
+
+[build.environment]
+  NODE_VERSION = "22"

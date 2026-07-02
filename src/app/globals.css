@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* Class-based (manual) dark mode: `dark:*` utilities and the token overrides
+   below apply whenever an ancestor has the `.dark` class. The root layout sets
+   `class="dark"` on <html> from the `theme` cookie (SSR — no flash). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind CSS v4 is CSS-first: theme tokens are declared here via @theme (no
+   tailwind.config.js). @theme colors generate bg-/text-/border-/ring- utilities
+   AND emit :root CSS variables. Custom tokens ADD to Tailwind's palette, so the
+   existing `neutral-*` utilities keep working — nothing is ripped out yet.
+
+   Dark-mode overrides for these semantic colors are added in UI-02. */
+@theme {
+  /* === Semantic colors — light defaults (mapping current neutral-* usage) === */
+  --color-bg: #fafafa; /* page background — was neutral-50 */
+  --color-surface: #ffffff; /* cards / sidebar / inputs — was white */
+  --color-surface-muted: #f5f5f5; /* hover / subtle fills — was neutral-100 */
+  --color-border: #e5e5e5; /* dividers / card borders — was neutral-200 */
+  --color-text: #171717; /* primary text — was neutral-900 */
+  --color-muted: #737373; /* secondary text — was neutral-500 */
+
+  /* Actions & feedback (use with the /opacity modifier for tints, e.g. bg-success/10) */
+  --color-primary: #171717; /* primary action — was neutral-900 (buttons) */
+  --color-primary-foreground: #ffffff; /* text/icon on primary */
+  /* -700 shades: dark enough for AA as text on their /10 tint badges (also used as fills). */
+  --color-success: #15803d; /* published / connected */
+  --color-warning: #b45309; /* pending / token-expired */
+  --color-danger: #b91c1c; /* failed / destructive */
+  --color-info: #1d4ed8; /* approved / informational */
+
+  /* === Platform accents === */
+  --color-linkedin: #0a66c2;
+  --color-instagram: #e1306c;
+  --color-facebook: #1877f2;
+  --color-youtube: #ff0000;
+  --color-x: #0f1419;
+  --color-tiktok: #ee1d52;
+
+  /* === Radius scale (values match current rounded-* usage — no visual shift) === */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  /* === Animations (opt-in; apply via motion-safe:animate-*) === */
+  --animate-fade-in-up: fade-in-up 0.4s ease-out both;
+  --animate-toast-in: toast-in 0.2s ease-out both;
+
+  /* === Typography (Inter is loaded via next/font in layout.tsx → --font-inter) === */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* === Elevation === */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+}
+
+/* === Dark-mode overrides ===
+   Re-point the semantic color tokens under `.dark`; every utility that resolves
+   via var() (bg-bg, text-text, border-border, bg-primary, …) flips automatically.
+   Platform accents keep their brand hue except X, whose near-black is remapped so
+   it stays visible on a dark surface. Elevation/radius are theme-agnostic. */
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-bg: #0a0a0a;
+  --color-surface: #171717;
+  --color-surface-muted: #262626;
+  --color-border: #2a2a2a;
+  --color-text: #fafafa;
+  --color-muted: #a3a3a3;
+
+  --color-primary: #fafafa; /* light action on dark */
+  --color-primary-foreground: #0a0a0a;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  --color-x: #e7e9ea; /* X brand near-black → light on dark */
+}
+
+/* Root surface follows the theme (per-page containers migrate to tokens in later
+   UI prompts; this ensures the page background/text already respond to the theme). */
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings wrap evenly and tighten slightly for a cleaner UI feel. */
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+  letter-spacing: -0.011em;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Theme-aware skeleton shimmer (a translucent sweep of the text color). Motion is
+   opt-in — under prefers-reduced-motion the element is a static muted block. */
+@media (prefers-reduced-motion: no-preference) {
+  .shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--color-text) 8%, transparent),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+}

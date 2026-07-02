@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    name: Lint · Typecheck · Test
+    runs-on: ubuntu-latest
+
+    env:
+      # Prisma reads DATABASE_URL when generating the client (schema/config load).
+      # Tests seed their own complete env via tests/setup/env.ts; this dummy value
+      # only satisfies `prisma generate` and never connects to a database.
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci?schema=public"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (with coverage gate)
+        run: npm run test:ci
