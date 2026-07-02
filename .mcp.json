@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "wordpress-dev": {
+      "type": "http",
+      "url": "${WSA_WP_DEV_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${WSA_WP_DEV_MCP_TOKEN}"
+      }
+    },
+    "wordpress-live": {
+      "type": "http",
+      "url": "${WSA_WP_LIVE_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${WSA_WP_LIVE_MCP_TOKEN}"
+      }
+    }
+  }
+}
