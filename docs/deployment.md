@@ -209,3 +209,50 @@ both against the same database.
 
 Run database migrations against the hosted DB once (from any machine with its
 `DATABASE_URL`): `npx prisma migrate deploy`.
+
+## 9. Deploying to Netlify (web app)
+
+Netlify hosts the **Next.js app** via its Next.js Runtime (`@netlify/plugin-nextjs`),
+auto-detected on deploy — **Next.js 16 is supported**, no plugin config required.
+`netlify.toml` pins the build command and Node version:
+
+```toml
+[build]
+  command = "prisma generate && next build"
+[build.environment]
+  NODE_VERSION = "22"
+```
+
+Netlify has **no built-in cron** and its serverless functions have a short timeout,
+so the **queue worker does not run on Netlify**. Leave `CRON_SECRET` unset (the tick
+endpoint stays disabled/503, §5) and run the queue elsewhere — a long-lived
+`Dockerfile.worker`, or an external scheduler (e.g. GitHub Actions) hitting
+`/api/worker/tick` with the `Authorization: Bearer $CRON_SECRET` header. A data-only
+demo needs no worker.
+
+1. **Push to GitHub**, then **import the repo** at app.netlify.com → *Add new site →
+   Import from GitHub*. Set the site name to fix the `*.netlify.app` origin.
+2. **Provision Postgres** (Neon / Supabase). With Neon, use the **pooled** connection
+   string (host contains `-pooler`) plus `?sslmode=require` as `DATABASE_URL` for the
+   app. Run migrations against the **direct** (non-pooled) endpoint once —
+   transaction-mode poolers can reject migration advisory locks:
+   ```bash
+   # direct endpoint = the pooled host with "-pooler" removed
+   DATABASE_URL="postgresql://…@ep-xxxx.<region>.aws.neon.tech/db?sslmode=require" \
+     npx prisma migrate deploy
+   ```
+3. **Environment variables** — Site configuration → Environment variables →
+   **Add a variable → Import from a .env file**, and paste every value from §5. Notes:
+   - Keep the scope as **All scopes**: the vars are read at **build time**
+     (`prisma generate` needs `DATABASE_URL`; `next build` runs `env.ts` validation)
+     *and* at runtime. Missing them fails the build with
+     `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL`.
+   - `NEXTAUTH_URL` and `APP_BASE_URL` → `https://<site>.netlify.app`.
+   - When re-importing to change a value, pick the **Update conflicts** merge strategy
+     (the default *Skip conflicts* keeps the old value).
+   - Netlify env-var changes only take effect on a **new deploy** — redeploy after editing.
+4. **GitHub OAuth callback** (§2) → `https://<site>.netlify.app/api/auth/callback/github`.
+5. **Deploy** — *Deploys → Trigger deploy*. If the first build ran before the vars
+   existed (e.g. auto-build on repo connect), just redeploy once the vars are set.
+
+`vercel.json` is ignored by Netlify and can remain in the repo.
