@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const nav = vi.hoisted(() => ({
   searchParams: new URLSearchParams(),
@@ -91,5 +91,100 @@ describe("PostsFeed (filters the rendered list from the URL)", () => {
     render(<PostsFeed initialPosts={posts} />);
     expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+  });
+});
+
+describe("PostsFeed summary cards (count posts, not platform items)", () => {
+  // Alpha has two PENDING items; Beta has one PENDING and one MANUAL_REQUIRED.
+  // Posts per bucket: pending 2, manual 1. Items per bucket: pending 3, manual 1.
+  const posts: PostSummary[] = [
+    {
+      id: "1",
+      title: "Alpha",
+      url: "https://a.example.com",
+      receivedAt: "2026-06-01T00:00:00.000Z",
+      platforms: [
+        { platform: "X", contentId: "x1", status: "PENDING" },
+        { platform: "LINKEDIN", contentId: "l1", status: "PENDING" },
+      ],
+    },
+    {
+      id: "2",
+      title: "Beta",
+      url: "https://b.example.com",
+      receivedAt: "2026-06-01T00:00:00.000Z",
+      platforms: [
+        { platform: "X", contentId: "x2", status: "PENDING" },
+        { platform: "TIKTOK", contentId: "t2", status: "MANUAL_REQUIRED" },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+  });
+
+  it("shows how many posts need attention, matching the card's filtered list", () => {
+    render(<PostsFeed initialPosts={posts} />);
+
+    const pending = screen.getByRole("link", { name: /pending review/i });
+    expect(within(pending).getByText("2")).toBeInTheDocument();
+    expect(within(pending).getByText("3 content items")).toBeInTheDocument();
+
+    const manual = screen.getByRole("link", { name: /manual required/i });
+    expect(within(manual).getByText("1")).toBeInTheDocument();
+    expect(within(manual).getByText("1 content item")).toBeInTheDocument();
+  });
+});
+
+describe("PostsFeed freshness indicator", () => {
+  const posts: PostSummary[] = [
+    {
+      id: "1",
+      title: "Alpha",
+      url: "https://a.example.com",
+      receivedAt: "2026-06-01T00:00:00.000Z",
+      platforms: [{ platform: "X", contentId: "x1", status: "PENDING" }],
+    },
+  ];
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a paused indicator instead of 'Live' when the poll fails", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    render(<PostsFeed initialPosts={posts} />);
+
+    expect(screen.getByText("Live")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(screen.getByText(/refresh paused/i)).toBeInTheDocument();
+    expect(screen.queryByText("Live")).not.toBeInTheDocument();
+  });
+
+  it("recovers to the live indicator once a poll succeeds", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValue({ ok: true, json: async () => posts });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PostsFeed initialPosts={posts} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText(/refresh paused/i)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText(/updated just now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refresh paused/i)).not.toBeInTheDocument();
   });
 });

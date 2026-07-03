@@ -6,18 +6,38 @@ import { useEffect, useState, type ReactElement } from "react";
 import { PostList } from "@/components/PostList";
 import type { PostSummary } from "@/components/PostRow";
 import { SummaryStrip, type SummaryCounts } from "@/components/SummaryStrip";
+import { cx } from "@/components/ui/cx";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 const POLL_MS = 5000;
 
-/** Aggregate per-platform statuses needing attention across all posts. */
+const STATUS_KEYS: Partial<Record<string, keyof SummaryCounts>> = {
+  PENDING: "pending",
+  FAILED: "failed",
+  MANUAL_REQUIRED: "manual",
+};
+
+/**
+ * Aggregate attention counts across all posts. A post counts once per bucket it
+ * has any item in (mirroring the card's `?status=` filtered list), while items
+ * tally every platform entry.
+ */
 function computeCounts(posts: PostSummary[]): SummaryCounts {
-  const counts: SummaryCounts = { pending: 0, failed: 0, manual: 0 };
+  const counts: SummaryCounts = {
+    pending: { posts: 0, items: 0 },
+    failed: { posts: 0, items: 0 },
+    manual: { posts: 0, items: 0 },
+  };
   for (const post of posts) {
+    const seen = new Set<keyof SummaryCounts>();
     for (const p of post.platforms) {
-      if (p.status === "PENDING") counts.pending += 1;
-      else if (p.status === "FAILED") counts.failed += 1;
-      else if (p.status === "MANUAL_REQUIRED") counts.manual += 1;
+      const key = STATUS_KEYS[p.status];
+      if (!key) continue;
+      counts[key].items += 1;
+      if (!seen.has(key)) {
+        seen.add(key);
+        counts[key].posts += 1;
+      }
     }
   }
   return counts;
@@ -68,6 +88,7 @@ export function PostsFeedSkeleton(): ReactElement {
 export function PostsFeed({ initialPosts }: { initialPosts: PostSummary[] }): ReactElement {
   const [posts, setPosts] = useState(initialPosts);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [stale, setStale] = useState(false);
   const params = useSearchParams();
 
   useEffect(() => {
@@ -77,14 +98,22 @@ export function PostsFeed({ initialPosts }: { initialPosts: PostSummary[] }): Re
     async function poll(): Promise<void> {
       try {
         const res = await fetch("/api/posts", { signal: controller.signal });
-        if (!res.ok) return;
+        if (!res.ok) {
+          // e.g. expired session (401) — flag it instead of freezing silently.
+          if (active) setStale(true);
+          return;
+        }
         const data = (await res.json()) as PostSummary[];
         if (active) {
           setPosts(data);
           setUpdatedAt(Date.now());
+          setStale(false);
         }
-      } catch {
-        // Ignore transient/aborted polls; the next tick retries.
+      } catch (error) {
+        // Aborted polls (unmount) are expected; anything else marks the data stale.
+        if (active && !(error instanceof DOMException && error.name === "AbortError")) {
+          setStale(true);
+        }
       }
     }
 
@@ -110,10 +139,15 @@ export function PostsFeed({ initialPosts }: { initialPosts: PostSummary[] }): Re
       </div>
       <div className="mb-2 flex items-center justify-end gap-1.5 text-xs text-muted">
         <span
-          className="h-1.5 w-1.5 rounded-full bg-success motion-safe:animate-pulse"
+          className={cx(
+            "h-1.5 w-1.5 rounded-full",
+            stale ? "bg-warning" : "bg-success motion-safe:animate-pulse",
+          )}
           aria-hidden="true"
         />
-        <span suppressHydrationWarning>{updatedLabel(updatedAt)}</span>
+        <span suppressHydrationWarning>
+          {stale ? "Refresh paused — retrying" : updatedLabel(updatedAt)}
+        </span>
       </div>
       <PostList posts={filtered} />
     </div>

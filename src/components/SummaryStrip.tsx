@@ -3,10 +3,17 @@ import type { ReactElement } from "react";
 
 import { cx } from "@/components/ui/cx";
 
+export interface StatusCount {
+  /** Posts with at least one item in this status — matches the card's filtered list. */
+  posts: number;
+  /** Total platform content items in this status across all posts. */
+  items: number;
+}
+
 export interface SummaryCounts {
-  pending: number;
-  failed: number;
-  manual: number;
+  pending: StatusCount;
+  failed: StatusCount;
+  manual: StatusCount;
 }
 
 interface Item {
@@ -23,9 +30,10 @@ const ITEMS: Item[] = [
 ];
 
 /**
- * Attention summary (UI-20): counts of content items needing action, each card
- * deep-linking to its filtered dashboard view. Counts are supplied by the live
- * feed (server-seeded, poll-refreshed).
+ * Attention summary (UI-20): posts needing action (with the underlying content
+ * item total as detail), each card deep-linking to its filtered dashboard view.
+ * The headline number equals the rows shown when the card is clicked. Counts
+ * are supplied by the live feed (server-seeded, poll-refreshed).
  */
 export function SummaryStrip({ counts }: { counts: SummaryCounts }): ReactElement {
   return (
@@ -38,7 +46,10 @@ export function SummaryStrip({ counts }: { counts: SummaryCounts }): ReactElemen
         >
           <span className="text-sm text-muted">{item.label}</span>
           <div className={cx("mt-1 text-2xl font-semibold tabular-nums", item.tone)}>
-            {counts[item.key]}
+            {counts[item.key].posts}
+          </div>
+          <div className="mt-0.5 text-xs text-muted tabular-nums">
+            {counts[item.key].items} content item{counts[item.key].items === 1 ? "" : "s"}
           </div>
         </Link>
       ))}
