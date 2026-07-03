@@ -125,9 +125,14 @@ describe("generateForPost (plan §4 / Principle VII)", () => {
     });
   });
 
-  it("marks YouTube and TikTok MANUAL_REQUIRED", async () => {
+  it("marks YouTube MANUAL_REQUIRED; TikTok is PENDING when it has a featured image", async () => {
     await generateForPost(POST);
-    expect(createdFor("YOUTUBE")?.status).toBe("MANUAL_REQUIRED");
+    expect(createdFor("YOUTUBE")?.status).toBe("MANUAL_REQUIRED"); // no community-post API
+    expect(createdFor("TIKTOK")?.status).toBe("PENDING"); // has image → publishable draft
+  });
+
+  it("marks TikTok MANUAL_REQUIRED when the post has no featured image", async () => {
+    await generateForPost({ ...POST, featuredImageUrl: null } as WordPressPost);
     expect(createdFor("TIKTOK")?.status).toBe("MANUAL_REQUIRED");
   });
 

@@ -70,8 +70,10 @@ describe("OAuth start (contracts/oauth.md, FR-017)", () => {
     expect(url.searchParams.get("client_id")).toBeNull();
 
     const scope = url.searchParams.get("scope") ?? "";
-    expect(scope).toContain("video.publish");
-    expect(scope.split(",").length).toBeGreaterThanOrEqual(3); // comma-delimited
+    expect(scope).toContain("user.info.basic");
+    expect(scope).toContain("video.upload"); // inbox-draft flow; not video.publish
+    expect(scope).not.toContain("video.publish");
+    expect(scope.split(",").length).toBeGreaterThanOrEqual(2); // comma-delimited
     expect(scope).not.toContain(" ");
 
     expect(url.searchParams.get("code_challenge")).toBeTruthy();

@@ -26,10 +26,6 @@ import { enqueuePublish } from "@/lib/queue/enqueue";
 
 const MAX_TOKENS = 4096;
 
-// TikTok cannot direct-publish publicly until the app passes TikTok's audit, so
-// its content is held for manual posting this phase (research.md).
-const TIKTOK_AUDITED = false;
-
 const PLATFORMS = Object.keys(PLATFORM_PROMPTS) as Platform[];
 
 function toPostInput(post: WordPressPost): PostInput {
@@ -52,7 +48,9 @@ function resolveStatus(
 ): ContentStatus {
   if (platform === "YOUTUBE") return "MANUAL_REQUIRED"; // no community-post API
   if (platform === "INSTAGRAM" && !post.featuredImageUrl) return "MANUAL_REQUIRED";
-  if (platform === "TIKTOK" && !TIKTOK_AUDITED) return "MANUAL_REQUIRED";
+  // TikTok Content Posting API (MEDIA_UPLOAD inbox draft) needs the WP featured
+  // image; without one it can't publish, so hold it for manual (like Instagram).
+  if (platform === "TIKTOK" && !post.featuredImageUrl) return "MANUAL_REQUIRED";
   if (account?.autoPublish && account.status === "CONNECTED") return "APPROVED";
   return "PENDING";
 }

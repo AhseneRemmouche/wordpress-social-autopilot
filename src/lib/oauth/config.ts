@@ -66,12 +66,16 @@ export const OAUTH_CONFIGS: Record<OAuthProvider, OAuthConfig> = {
     usesPkce: true,
   },
 
-  // TikTok — Login Kit v2; PKCE required for web; video.upload = inbox draft.
+  // TikTok — Login Kit v2; PKCE required for web. The publisher uses the
+  // Content Posting API in MEDIA_UPLOAD (inbox draft) mode, so it needs
+  // video.upload only — not video.publish (direct post), which the app never
+  // does. Requesting an unregistered/unused scope breaks the authorize step
+  // and is flagged in TikTok app review.
   TIKTOK: {
     provider: "TIKTOK",
     authUrl: "https://www.tiktok.com/v2/auth/authorize/",
     tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
-    scopes: ["user.info.basic", "video.publish", "video.upload"],
+    scopes: ["user.info.basic", "video.upload"],
     usesPkce: true,
   },
 

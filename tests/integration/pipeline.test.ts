@@ -218,7 +218,7 @@ describe("full pipeline: webhook → generation → publish (SC-001/SC-004, Prin
 
     // Manual / pending platforms at generation time.
     expect(byPlatform("YOUTUBE").status).toBe("MANUAL_REQUIRED");
-    expect(byPlatform("TIKTOK").status).toBe("MANUAL_REQUIRED");
+    expect(byPlatform("TIKTOK").status).toBe("PENDING"); // has featured image → publishable draft
     expect(byPlatform("INSTAGRAM").status).toBe("PENDING");
     // Auto-publish + connected → APPROVED and enqueued.
     expect(byPlatform("LINKEDIN").status).toBe("APPROVED");
