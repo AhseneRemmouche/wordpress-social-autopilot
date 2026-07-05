@@ -178,6 +178,14 @@ beforeEach(() => {
       if (url.includes("api.linkedin.com/rest/posts")) {
         return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
       }
+      // Facebook: photo post when the WP post has a featured image (the fixture
+      // does), else a link post to /feed.
+      if (url.includes("/photos")) {
+        return new Response(JSON.stringify({ id: "photo_1", post_id: "page_1_post" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url.includes("/feed")) {
         return new Response(JSON.stringify({ id: "page_1_post" }), {
           status: 200,

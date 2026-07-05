@@ -9,6 +9,9 @@ import {
   vi,
 } from "vitest";
 
+vi.mock("@/lib/prisma", () => ({
+  prisma: { wordPressPost: { findUnique: vi.fn() } },
+}));
 vi.mock("@/lib/oauth/tokens", () => ({
   getValidAccessToken: vi.fn(),
   refreshAccessToken: vi.fn(),
@@ -16,9 +19,11 @@ vi.mock("@/lib/oauth/tokens", () => ({
 }));
 
 import { getValidAccessToken } from "@/lib/oauth/tokens";
+import { prisma } from "@/lib/prisma";
 import { facebookPublisher } from "@/lib/publishers/facebook";
 
 const getTokenMock = getValidAccessToken as unknown as Mock;
+const findUniqueMock = prisma.wordPressPost.findUnique as unknown as Mock;
 let fetchMock: Mock;
 
 const ACCOUNT = {
@@ -45,6 +50,7 @@ function json(obj: unknown): Response {
 
 beforeEach(() => {
   getTokenMock.mockReset().mockResolvedValue("token-123");
+  findUniqueMock.mockReset().mockResolvedValue({ featuredImageUrl: null });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -62,7 +68,8 @@ describe("facebookPublisher (Principle III / VII, FR-010)", () => {
     });
   });
 
-  it("publishes to /{page-id}/feed with message + link and returns the post id", async () => {
+  it("no featured image → link post to /{page-id}/feed with message + link", async () => {
+    findUniqueMock.mockResolvedValue({ featuredImageUrl: null });
     fetchMock.mockResolvedValue(json({ id: "page-123_456" }));
 
     const result = await facebookPublisher.publish(CONTENT, ACCOUNT);
@@ -77,6 +84,30 @@ describe("facebookPublisher (Principle III / VII, FR-010)", () => {
     expect(body.get("link")).toBe(CONTENT.link);
     expect(body.get("message")).toContain("guide is live");
     expect(body.get("message")).toContain("#news");
+    expect(body.get("access_token")).toBe("token-123");
+  });
+
+  it("featured image → photo post to /{page-id}/photos with caption; returns the feed post_id", async () => {
+    findUniqueMock.mockResolvedValue({
+      featuredImageUrl: "https://blog.example.com/img.jpg",
+    });
+    fetchMock.mockResolvedValue(json({ id: "photo-789", post_id: "page-123_999" }));
+
+    const result = await facebookPublisher.publish(CONTENT, ACCOUNT);
+
+    // The externalId is the feed post_id (not the photo id) for delete/reference.
+    expect(result).toEqual({ ok: true, externalId: "page-123_999" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://graph.facebook.com/v25.0/page-123/photos",
+    );
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("url")).toBe("https://blog.example.com/img.jpg");
+    // Caption carries the backlink so the article stays reachable.
+    expect(body.get("caption")).toContain(CONTENT.link);
+    expect(body.get("caption")).toContain("#news");
+    expect(body.get("link")).toBeNull(); // photo posts don't use the link param
     expect(body.get("access_token")).toBe("token-123");
   });
 
