@@ -39,11 +39,32 @@ describe("GET /api/connections (FR-018/020)", () => {
 
     expect(body).toHaveLength(6);
     const li = body.find((c) => c.platform === "LINKEDIN");
-    expect(li).toMatchObject({ status: "CONNECTED", autoPublish: true });
+    // LinkedIn tokens don't refresh — they expire and need reconnect.
+    expect(li).toMatchObject({ status: "CONNECTED", autoPublish: true, autoRenews: false });
     expect(li?.expiresAt).toBe("2030-01-01T00:00:00.000Z");
 
     const x = body.find((c) => c.platform === "X");
-    expect(x).toMatchObject({ status: "DISCONNECTED", autoPublish: false, expiresAt: null });
+    // X auto-renews regardless of current connection status.
+    expect(x).toMatchObject({
+      status: "DISCONNECTED",
+      autoPublish: false,
+      expiresAt: null,
+      autoRenews: true,
+    });
+  });
+
+  it("flags X/TikTok/YouTube as auto-renewing; LinkedIn/Meta as not (FR-020)", async () => {
+    const res = await GET(req());
+    const body = (await res.json()) as Array<{ platform: string; autoRenews: boolean }>;
+    const autoRenews = Object.fromEntries(body.map((c) => [c.platform, c.autoRenews]));
+    expect(autoRenews).toEqual({
+      X: true,
+      TIKTOK: true,
+      YOUTUBE: true,
+      LINKEDIN: false,
+      FACEBOOK: false,
+      INSTAGRAM: false,
+    });
   });
 
   it("NEVER exposes token material and never selects token columns", async () => {

@@ -1,5 +1,6 @@
 import type { AccountStatus, Platform } from "@prisma/client";
 
+import { platformAutoRenews } from "@/lib/oauth/config";
 import { parsePlatformSlug } from "@/lib/oauth/platform";
 import { requireOwner } from "@/lib/oauth/session";
 import { prisma } from "@/lib/prisma";
@@ -22,6 +23,7 @@ interface ConnectionView {
   status: AccountStatus;
   expiresAt: string | null;
   autoPublish: boolean;
+  autoRenews: boolean;
 }
 
 function json(data: unknown, status: number): Response {
@@ -56,6 +58,7 @@ export async function GET(request: Request): Promise<Response> {
       status: account?.status ?? "DISCONNECTED",
       expiresAt: account?.expiresAt?.toISOString() ?? null,
       autoPublish: account?.autoPublish ?? false,
+      autoRenews: platformAutoRenews(platform),
     };
   });
 

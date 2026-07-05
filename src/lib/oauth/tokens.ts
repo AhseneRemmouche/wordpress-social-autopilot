@@ -6,6 +6,7 @@ import {
   OAUTH_CONFIGS,
   type OAuthProvider,
   PLATFORM_PROVIDER,
+  providerSupportsRefresh,
 } from "@/lib/oauth/config";
 import { prisma } from "@/lib/prisma";
 
@@ -37,9 +38,7 @@ export class TokenError extends Error {
 const EXPIRY_BUFFER_MS = 60_000;
 
 /** Providers that issue a usable refresh token (LinkedIn/Meta require reconnect). */
-function supportsRefresh(provider: OAuthProvider): boolean {
-  return provider === "X" || provider === "TIKTOK" || provider === "GOOGLE";
-}
+const supportsRefresh = providerSupportsRefresh;
 
 function providerCredentials(provider: OAuthProvider): {
   clientId: string;

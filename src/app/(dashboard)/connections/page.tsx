@@ -3,6 +3,7 @@ import { Suspense, type ReactElement } from "react";
 
 import { ConnectionCard, type ConnectionView } from "@/components/ConnectionCard";
 import { OAuthReturnToast } from "@/components/OAuthReturnToast";
+import { platformAutoRenews } from "@/lib/oauth/config";
 import { prisma } from "@/lib/prisma";
 
 // Always render fresh (owner-gated by the (dashboard) layout).
@@ -41,6 +42,7 @@ async function loadConnections(): Promise<ConnectionView[]> {
       status: account?.status ?? "DISCONNECTED",
       expiresAt: account?.expiresAt?.toISOString() ?? null,
       autoPublish: account?.autoPublish ?? false,
+      autoRenews: platformAutoRenews(platform),
     };
   });
 }

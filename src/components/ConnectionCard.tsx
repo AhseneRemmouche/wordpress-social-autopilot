@@ -19,6 +19,8 @@ export interface ConnectionView {
   status: AccountStatus;
   expiresAt: string | null;
   autoPublish: boolean;
+  /** True when the platform's token auto-refreshes (X/TikTok/YouTube) vs. expiring. */
+  autoRenews: boolean;
 }
 
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -80,7 +82,14 @@ export function ConnectionCard({ connection }: { connection: ConnectionView }): 
   const canDisconnect = status !== "DISCONNECTED";
 
   const meta: string[] = [];
-  if (connection.expiresAt) meta.push(expiryLabel(connection.expiresAt));
+  // Auto-refreshing platforms (X/TikTok/YouTube) renew their short-lived access
+  // token automatically, so show that rather than an alarming expiry countdown.
+  // A genuinely failed refresh flips status to TOKEN_EXPIRED and falls through.
+  if (status === "CONNECTED" && connection.autoRenews) {
+    meta.push("Auto-renews");
+  } else if (connection.expiresAt) {
+    meta.push(expiryLabel(connection.expiresAt));
+  }
   const hint = CAPABILITY_HINT[platform];
   if (hint) meta.push(hint);
 

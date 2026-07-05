@@ -30,6 +30,28 @@ export const PLATFORM_PROVIDER: Record<Platform, OAuthProvider> = {
   YOUTUBE: "GOOGLE",
 };
 
+/**
+ * Providers that issue a usable refresh token, so the app renews their
+ * (short-lived) access tokens automatically instead of ever needing a manual
+ * reconnect. LinkedIn and Meta don't refresh — their long-lived tokens expire
+ * (~60 days) and require reconnect. Single source of truth for both the token
+ * refresh logic (`tokens.ts`) and the "Auto-renews" connections UI.
+ */
+const REFRESH_PROVIDERS: ReadonlySet<OAuthProvider> = new Set(["X", "TIKTOK", "GOOGLE"]);
+
+/** Whether a provider's tokens auto-renew via a refresh grant. */
+export function providerSupportsRefresh(provider: OAuthProvider): boolean {
+  return REFRESH_PROVIDERS.has(provider);
+}
+
+/**
+ * Whether a platform's tokens auto-renew (X/TikTok/YouTube) rather than expiring
+ * and needing reconnect (LinkedIn/Facebook/Instagram). Drives the connections UI.
+ */
+export function platformAutoRenews(platform: Platform): boolean {
+  return providerSupportsRefresh(PLATFORM_PROVIDER[platform]);
+}
+
 export const OAUTH_CONFIGS: Record<OAuthProvider, OAuthConfig> = {
   // LinkedIn — confidential client (client_secret), no PKCE required.
   // openid+profile resolve the member URN (author) via /userinfo; w_member_social posts.

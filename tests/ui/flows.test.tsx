@@ -125,7 +125,13 @@ describe("ConnectionCard", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderWithToast(
       <ConnectionCard
-        connection={{ platform: "LINKEDIN", status: "CONNECTED", expiresAt: null, autoPublish: false }}
+        connection={{
+          platform: "LINKEDIN",
+          status: "CONNECTED",
+          expiresAt: null,
+          autoPublish: false,
+          autoRenews: false,
+        }}
       />,
     );
 
@@ -138,5 +144,56 @@ describe("ConnectionCard", () => {
     });
     expect(await screen.findByText("LinkedIn disconnected.")).toBeInTheDocument();
     expect(routerMock.refresh).toHaveBeenCalled();
+  });
+
+  it("auto-renewing platform (X) shows 'Auto-renews', not an expiry countdown", () => {
+    // X's access token expires within the hour but auto-refreshes on use.
+    renderWithToast(
+      <ConnectionCard
+        connection={{
+          platform: "X",
+          status: "CONNECTED",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          autoPublish: false,
+          autoRenews: true,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Auto-renews/)).toBeInTheDocument();
+    expect(screen.queryByText(/Expires/)).not.toBeInTheDocument();
+  });
+
+  it("non-refreshing platform (LinkedIn) shows the expiry countdown", () => {
+    renderWithToast(
+      <ConnectionCard
+        connection={{
+          platform: "LINKEDIN",
+          status: "CONNECTED",
+          expiresAt: new Date(Date.now() + 58 * 86_400_000).toISOString(),
+          autoPublish: false,
+          autoRenews: false,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Expires in 58 days/)).toBeInTheDocument();
+    expect(screen.queryByText(/Auto-renews/)).not.toBeInTheDocument();
+  });
+
+  it("a genuinely expired auto-renew token still shows 'Token expired' + Reconnect", () => {
+    // Refresh failed → status flipped to TOKEN_EXPIRED; the reassuring label is gone.
+    renderWithToast(
+      <ConnectionCard
+        connection={{
+          platform: "X",
+          status: "TOKEN_EXPIRED",
+          expiresAt: new Date(Date.now() - 3_600_000).toISOString(),
+          autoPublish: false,
+          autoRenews: true,
+        }}
+      />,
+    );
+    expect(screen.getAllByText(/Token expired/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Auto-renews/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reconnect" })).toBeInTheDocument();
   });
 });
