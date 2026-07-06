@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/ToastProvider";
 import { cx } from "@/components/ui/cx";
 import { getCharLimit } from "@/lib/limits";
+import { publishHubUrl } from "@/lib/publishers/post-url";
 
 /** A per-platform generated-content preview (matches GET /api/posts/[postId]). */
 export interface ContentPreview {
@@ -93,6 +94,8 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
   const label = PLATFORM_LABEL[content.platform];
   const status = optimistic ?? content.status;
   const busy = busyAction !== null;
+  // Manual channels (YouTube/TikTok) — where to go to post it yourself.
+  const hubUrl = publishHubUrl(content.platform);
 
   async function act(action: BusyAction): Promise<void> {
     const { path, target, message } = ACTIONS[action];
@@ -210,6 +213,17 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
         <Button size="sm" variant="secondary" onClick={() => void copyCaption()} disabled={busy}>
           Copy
         </Button>
+
+        {hubUrl && status !== "PUBLISHED" && (
+          <a
+            href={hubUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-muted"
+          >
+            Post on {label} ↗
+          </a>
+        )}
 
         {status === "MANUAL_REQUIRED" && (
           <Button

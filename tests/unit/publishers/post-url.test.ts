@@ -1,7 +1,7 @@
 import type { Platform } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 
-import { buildPostUrl } from "@/lib/publishers/post-url";
+import { buildPostUrl, publishHubUrl } from "@/lib/publishers/post-url";
 
 describe("buildPostUrl", () => {
   it("builds a Facebook post URL from the {pageId}_{postId} id", () => {
@@ -32,5 +32,18 @@ describe("buildPostUrl", () => {
     expect(buildPostUrl("FACEBOOK", null)).toBeNull();
     expect(buildPostUrl("FACEBOOK", undefined)).toBeNull();
     expect(buildPostUrl("FACEBOOK", "   ")).toBeNull();
+  });
+});
+
+describe("publishHubUrl", () => {
+  it("points YouTube to Studio and TikTok to the upload page", () => {
+    expect(publishHubUrl("YOUTUBE")).toBe("https://studio.youtube.com");
+    expect(publishHubUrl("TIKTOK")).toBe("https://www.tiktok.com/tiktokstudio/upload");
+  });
+
+  it("returns null for the auto-publishing platforms", () => {
+    for (const p of ["FACEBOOK", "LINKEDIN", "X", "INSTAGRAM"] as Platform[]) {
+      expect(publishHubUrl(p)).toBeNull();
+    }
   });
 });

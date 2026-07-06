@@ -28,3 +28,19 @@ export function buildPostUrl(
       return null;
   }
 }
+
+/**
+ * The platform's create-a-post page — where the operator goes to publish a manual
+ * card (YouTube, TikTok) after copying the caption. Static per platform; other
+ * platforms auto-publish and don't need it (returns null).
+ */
+export function publishHubUrl(platform: Platform): string | null {
+  switch (platform) {
+    case "YOUTUBE":
+      return "https://studio.youtube.com"; // → Create → Create post / Upload videos
+    case "TIKTOK":
+      return "https://www.tiktok.com/tiktokstudio/upload"; // web upload
+    default:
+      return null;
+  }
+}
