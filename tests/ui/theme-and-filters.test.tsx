@@ -16,6 +16,7 @@ import { DashboardToolbar } from "@/components/DashboardToolbar";
 import { PostsFeed } from "@/components/PostsFeed";
 import type { PostSummary } from "@/components/PostRow";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { ToastProvider } from "@/components/ui/ToastProvider";
 
 beforeEach(() => {
   nav.searchParams = new URLSearchParams();
@@ -81,14 +82,22 @@ describe("PostsFeed (filters the rendered list from the URL)", () => {
 
   it("narrows to posts matching the status filter", () => {
     nav.searchParams = new URLSearchParams("status=FAILED");
-    render(<PostsFeed initialPosts={posts} />);
+    render(
+      <ToastProvider>
+        <PostsFeed initialPosts={posts} />
+      </ToastProvider>,
+    );
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
   });
 
   it("narrows to posts matching the search term", () => {
     nav.searchParams = new URLSearchParams("q=beta");
-    render(<PostsFeed initialPosts={posts} />);
+    render(
+      <ToastProvider>
+        <PostsFeed initialPosts={posts} />
+      </ToastProvider>,
+    );
     expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
   });
@@ -125,7 +134,11 @@ describe("PostsFeed summary cards (count posts, not platform items)", () => {
   });
 
   it("shows how many posts need attention, matching the card's filtered list", () => {
-    render(<PostsFeed initialPosts={posts} />);
+    render(
+      <ToastProvider>
+        <PostsFeed initialPosts={posts} />
+      </ToastProvider>,
+    );
 
     const pending = screen.getByRole("link", { name: /pending review/i });
     expect(within(pending).getByText("2")).toBeInTheDocument();
@@ -155,7 +168,11 @@ describe("PostsFeed freshness indicator", () => {
   it("shows a paused indicator instead of 'Live' when the poll fails", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
-    render(<PostsFeed initialPosts={posts} />);
+    render(
+      <ToastProvider>
+        <PostsFeed initialPosts={posts} />
+      </ToastProvider>,
+    );
 
     expect(screen.getByText("Live")).toBeInTheDocument();
 
@@ -174,7 +191,11 @@ describe("PostsFeed freshness indicator", () => {
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValue({ ok: true, json: async () => posts });
     vi.stubGlobal("fetch", fetchMock);
-    render(<PostsFeed initialPosts={posts} />);
+    render(
+      <ToastProvider>
+        <PostsFeed initialPosts={posts} />
+      </ToastProvider>,
+    );
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);

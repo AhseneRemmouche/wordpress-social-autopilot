@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 
 import { PostList } from "@/components/PostList";
 import type { PostSummary } from "@/components/PostRow";
@@ -125,6 +125,11 @@ export function PostsFeed({ initialPosts }: { initialPosts: PostSummary[] }): Re
     };
   }, []);
 
+  // Drop a row once the server confirms its delete; the next poll won't return it.
+  const handleDeleted = useCallback((id: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   const filtered = filterPosts(
     posts,
     params.get("status") ?? "",
@@ -149,7 +154,7 @@ export function PostsFeed({ initialPosts }: { initialPosts: PostSummary[] }): Re
           {stale ? "Refresh paused — retrying" : updatedLabel(updatedAt)}
         </span>
       </div>
-      <PostList posts={filtered} />
+      <PostList posts={filtered} onDeleted={handleDeleted} />
     </div>
   );
 }

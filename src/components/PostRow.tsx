@@ -2,6 +2,7 @@ import type { ContentStatus, Platform } from "@prisma/client";
 import Link from "next/link";
 import type { ReactElement } from "react";
 
+import { DeletePostButton } from "@/components/DeletePostButton";
 import { StatusBadge } from "@/components/StatusBadge";
 
 /** One platform's generated-content status for a post (matches GET /api/posts). */
@@ -54,42 +55,55 @@ function relativeTime(iso: string): string {
 
 /**
  * A single row in the dashboard post list (FR-024): title, host, relative time,
- * and a per-platform status chip row. The whole row links to the review detail.
- * Responsive (stacks < sm), token-driven, with hover + focus-visible states.
+ * and a per-platform status chip row. The row links to the review detail; a
+ * trailing delete control (sibling of the link, not nested inside it) removes the
+ * post. Responsive (stacks < sm), token-driven, with hover + focus-visible states.
  */
-export function PostRow({ post }: { post: PostSummary }): ReactElement {
+export function PostRow({
+  post,
+  onDeleted,
+}: {
+  post: PostSummary;
+  onDeleted: (id: string) => void;
+}): ReactElement {
   return (
-    <Link
-      href={`/posts/${post.id}`}
-      className="block px-4 py-3 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
-    >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-medium text-text">{post.title}</h3>
-          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
-            <span className="truncate">{displayHost(post.url)}</span>
-            <span aria-hidden="true">·</span>
-            <time dateTime={post.receivedAt} title={post.receivedAt} suppressHydrationWarning>
-              {relativeTime(post.receivedAt)}
-            </time>
+    <div className="flex items-stretch">
+      <Link
+        href={`/posts/${post.id}`}
+        className="block min-w-0 flex-1 px-4 py-3 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-medium text-text">{post.title}</h3>
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+              <span className="truncate">{displayHost(post.url)}</span>
+              <span aria-hidden="true">·</span>
+              <time dateTime={post.receivedAt} title={post.receivedAt} suppressHydrationWarning>
+                {relativeTime(post.receivedAt)}
+              </time>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
+            {post.platforms.map((p) => (
+              <span
+                key={p.contentId}
+                className="inline-flex items-center gap-1"
+                title={p.platform}
+              >
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  {PLATFORM_SHORT[p.platform]}
+                </span>
+                <StatusBadge status={p.status} />
+              </span>
+            ))}
           </div>
         </div>
+      </Link>
 
-        <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
-          {post.platforms.map((p) => (
-            <span
-              key={p.contentId}
-              className="inline-flex items-center gap-1"
-              title={p.platform}
-            >
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-                {PLATFORM_SHORT[p.platform]}
-              </span>
-              <StatusBadge status={p.status} />
-            </span>
-          ))}
-        </div>
+      <div className="flex items-center pl-1 pr-3">
+        <DeletePostButton postId={post.id} title={post.title} onDeleted={onDeleted} />
       </div>
-    </Link>
+    </div>
   );
 }

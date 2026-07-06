@@ -89,3 +89,29 @@ export async function GET(
 
   return json(view, 200);
 }
+
+/**
+ * DELETE /api/posts/[postId]. Owner-only. Removes the triggering post from the
+ * app database. The FK `ON DELETE CASCADE` constraints remove its GeneratedContent
+ * and, in turn, each content's PublishJob and AuditLog rows automatically — so a
+ * single delete cleans up the whole tree. This does NOT delete the post on the
+ * WordPress site. 404 if the post does not exist. Idempotent.
+ */
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ postId: string }> },
+): Promise<Response> {
+  if (!(await requireOwner(request))) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  const { postId } = await context.params;
+
+  // deleteMany (not delete) so a missing id returns count 0 instead of throwing.
+  const { count } = await prisma.wordPressPost.deleteMany({ where: { id: postId } });
+  if (count === 0) {
+    return json({ error: "post not found" }, 404);
+  }
+
+  return json({ ok: true, id: postId }, 200);
+}
