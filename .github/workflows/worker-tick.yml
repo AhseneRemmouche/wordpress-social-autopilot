@@ -1,0 +1,53 @@
+name: Worker tick
+
+# Drives the queue worker in production (GL-27). Netlify has no built-in cron, so
+# this scheduled workflow pokes the serverless tick endpoint, which runs one
+# generation pass + one publish pass against the live database. The endpoint is
+# fail-closed: it requires `Authorization: Bearer <CRON_SECRET>` (401 otherwise)
+# and is disabled entirely (503) until CRON_SECRET is set on Netlify.
+#
+# Setup: add CRON_SECRET as an Actions secret on this repo, matching the value
+# already configured on Netlify (Settings → Secrets and variables → Actions).
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay scheduled runs under load, and pauses
+    # schedules after 60 days of repo inactivity.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+# Never run two ticks at once (a slow tick shouldn't overlap the next schedule).
+concurrency:
+  group: worker-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    name: Drain one worker tick
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST /api/worker/tick
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TICK_URL: https://wordpress-social-autopilot.netlify.app/api/worker/tick
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret is not set on this repository."
+            exit 1
+          fi
+
+          # Capture the response body and the HTTP status separately so we can
+          # log the worker counts and fail on any non-200.
+          http_code=$(curl --silent --show-error --max-time 300 \
+            --output response.json --write-out "%{http_code}" \
+            --request POST "$TICK_URL" \
+            --header "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP $http_code"
+          echo "Response: $(cat response.json)"
+
+          if [ "$http_code" != "200" ]; then
+            echo "::error::Worker tick failed with HTTP $http_code"
+            exit 1
+          fi
