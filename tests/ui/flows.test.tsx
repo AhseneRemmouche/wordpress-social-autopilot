@@ -11,6 +11,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AutoPublishToggle } from "@/components/AutoPublishToggle";
+import { CheckNewPostsButton } from "@/components/CheckNewPostsButton";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { PlatformPreviewCard, type ContentPreview } from "@/components/PlatformPreviewCard";
 import { RetryButton } from "@/components/RetryButton";
@@ -116,6 +117,47 @@ describe("AutoPublishToggle", () => {
 
     await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "false"));
     expect(screen.getByText(/Failed/i)).toBeInTheDocument();
+  });
+});
+
+describe("CheckNewPostsButton", () => {
+  function jsonFetch(count: number): ReturnType<typeof vi.fn> {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ count }),
+    });
+  }
+
+  it("imported → POST, success toast, refresh", async () => {
+    const fetchMock = jsonFetch(1);
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithToast(<CheckNewPostsButton />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Check for new posts" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/posts/check-new", { method: "POST" });
+    expect(await screen.findByText(/Imported & generated 1 new post\./i)).toBeInTheDocument();
+    expect(routerMock.refresh).toHaveBeenCalled();
+  });
+
+  it("nothing new → 'No new posts', no refresh", async () => {
+    vi.stubGlobal("fetch", jsonFetch(0));
+    renderWithToast(<CheckNewPostsButton />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Check for new posts" }));
+
+    expect(await screen.findByText(/No new posts\./i)).toBeInTheDocument();
+    expect(routerMock.refresh).not.toHaveBeenCalled();
+  });
+
+  it("server error → error toast", async () => {
+    vi.stubGlobal("fetch", errFetch());
+    renderWithToast(<CheckNewPostsButton />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Check for new posts" }));
+
+    expect(await screen.findByText(/Couldn't check for new posts/i)).toBeInTheDocument();
   });
 });
 

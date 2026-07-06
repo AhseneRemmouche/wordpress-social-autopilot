@@ -48,6 +48,15 @@ export const completePostSchema = z.object({
 
 export type CompletePost = z.infer<typeof completePostSchema>;
 
+/**
+ * WordPress REST list response (`/wp-json/wp/v2/posts?_fields=id,link`), used to
+ * discover the latest published posts for the dashboard "Check for new posts"
+ * button. Only `id` (post id) and `link` (permalink) are requested/validated.
+ */
+export const latestPostsSchema = z.array(
+  z.object({ id: z.number(), link: z.url() }),
+);
+
 /** The generation-required fields that are missing or empty in `payload`. */
 export function getMissingGenerationFields(
   payload: Partial<Record<GenerationRequiredField, string | null | undefined>>,

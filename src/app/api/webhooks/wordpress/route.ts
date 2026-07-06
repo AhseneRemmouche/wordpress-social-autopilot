@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { createPostIfNew } from "@/lib/wordpress/ingest";
 import { fetchFullPost } from "@/lib/wordpress/novamira";
 import {
   type CompletePost,
@@ -35,14 +35,6 @@ function mergePost(payload: WebhookPayload, full: CompletePost): CompletePost {
     categories: payload.categories.length > 0 ? payload.categories : full.categories,
     tags: payload.tags.length > 0 ? payload.tags : full.tags,
   });
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: unknown }).code === "P2002"
-  );
 }
 
 /**
@@ -100,37 +92,17 @@ export async function POST(request: Request): Promise<Response> {
 
   // 4. Persist only the post (dedupe on wpPostId; never reprocess — FR-006).
   try {
-    const existing = await prisma.wordPressPost.findUnique({
-      where: { wpPostId: postData.wpPostId },
-      select: { id: true },
-    });
-    if (existing) {
-      return json({ accepted: true, duplicate: true, postId: existing.id }, 200);
+    const { postId, created } = await createPostIfNew(postData, sourceComplete);
+    if (!created) {
+      // Existing row (postId set) or a concurrent duplicate insert (postId null).
+      return postId
+        ? json({ accepted: true, duplicate: true, postId }, 200)
+        : json({ accepted: true, duplicate: true }, 200);
     }
-
-    const post = await prisma.wordPressPost.create({
-      data: {
-        wpPostId: postData.wpPostId,
-        title: postData.title,
-        content: postData.content,
-        excerpt: postData.excerpt,
-        featuredImageUrl: postData.featuredImageUrl,
-        url: postData.url,
-        categories: postData.categories,
-        tags: postData.tags,
-        sourceComplete,
-        generatedAt: null,
-      },
-      select: { id: true },
-    });
 
     // 5. Acknowledge immediately (FR-003); the worker handles generation.
-    return json({ accepted: true, postId: post.id }, 202);
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      // Concurrent duplicate webhook — already persisted by the first request.
-      return json({ accepted: true, duplicate: true }, 200);
-    }
+    return json({ accepted: true, postId }, 202);
+  } catch {
     console.error("[webhook] failed to persist WordPressPost");
     return json({ error: "internal error" }, 500);
   }
