@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 import { AutoPublishToggle } from "@/components/AutoPublishToggle";
 import { CheckNewPostsButton } from "@/components/CheckNewPostsButton";
 import { ConnectionCard } from "@/components/ConnectionCard";
+import { DeletePostButton } from "@/components/DeletePostButton";
 import { PlatformPreviewCard, type ContentPreview } from "@/components/PlatformPreviewCard";
 import { RetryButton } from "@/components/RetryButton";
 import { ToastProvider } from "@/components/ui/ToastProvider";
@@ -253,5 +254,35 @@ describe("ConnectionCard", () => {
     expect(screen.getAllByText(/Token expired/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Auto-renews/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Reconnect" })).toBeInTheDocument();
+  });
+});
+
+describe("DeletePostButton", () => {
+  it("delete → confirm → DELETE, toast, onDeleted(id)", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const onDeleted = vi.fn();
+    renderWithToast(<DeletePostButton postId="p1" title="My Post" onDeleted={onDeleted} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete post" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/posts/p1", { method: "DELETE" });
+    expect(await screen.findByText("Post deleted.")).toBeInTheDocument();
+    expect(onDeleted).toHaveBeenCalledWith("p1");
+  });
+
+  it("error response → error toast, onDeleted NOT called", async () => {
+    vi.stubGlobal("fetch", errFetch());
+    const onDeleted = vi.fn();
+    renderWithToast(<DeletePostButton postId="p1" title="My Post" onDeleted={onDeleted} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete post" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText(/Couldn't delete the post/i)).toBeInTheDocument();
+    expect(onDeleted).not.toHaveBeenCalled();
   });
 });
