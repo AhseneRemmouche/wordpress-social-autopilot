@@ -6,6 +6,7 @@ import { ApproveAllButton, type PendingItem } from "@/components/ApproveAllButto
 import { PlatformPreviewCard, type ContentPreview } from "@/components/PlatformPreviewCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { prisma } from "@/lib/prisma";
+import { composePostText } from "@/lib/publishers/compose";
 
 // Always render fresh (owner-gated by the (dashboard) layout).
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function PostDetailPage({
       id: true,
       title: true,
       url: true,
+      featuredImageUrl: true,
       generatedContent: {
         select: {
           id: true,
@@ -56,6 +58,10 @@ export default async function PostDetailPage({
     hashtags: c.hashtags,
     link: c.link,
     charCount: c.charCount,
+    // The exact ready-to-paste caption (body + hashtags + backlink, within limit).
+    copyText: composePostText(c),
+    // Same featured image for every platform of the post (may be null).
+    featuredImageUrl: post.featuredImageUrl,
   }));
 
   const pending: PendingItem[] = content

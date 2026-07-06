@@ -9,7 +9,9 @@ import { truncateToLimit } from "@/lib/limits";
  * (FR-009/FR-010/FR-011). `truncateToLimit` de-duplicates the link, so calling
  * this on a body that already contains the link is safe.
  */
-export function composePostText(content: GeneratedContent): string {
+export function composePostText(
+  content: Pick<GeneratedContent, "body" | "hashtags" | "link" | "platform">,
+): string {
   const text =
     content.hashtags.length > 0
       ? `${content.body}\n\n${content.hashtags.join(" ")}`
