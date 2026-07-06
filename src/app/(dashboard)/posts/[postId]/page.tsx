@@ -7,6 +7,7 @@ import { PlatformPreviewCard, type ContentPreview } from "@/components/PlatformP
 import { EmptyState } from "@/components/ui/EmptyState";
 import { prisma } from "@/lib/prisma";
 import { composePostText } from "@/lib/publishers/compose";
+import { buildPostUrl } from "@/lib/publishers/post-url";
 
 // Always render fresh (owner-gated by the (dashboard) layout).
 export const dynamic = "force-dynamic";
@@ -40,6 +41,13 @@ export default async function PostDetailPage({
           hashtags: true,
           link: true,
           charCount: true,
+          // Latest successful publish → its platform post id (for the live link).
+          auditLogs: {
+            where: { outcome: "SUCCESS", externalId: { not: null } },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { externalId: true },
+          },
         },
         orderBy: { platform: "asc" },
       },
@@ -62,6 +70,8 @@ export default async function PostDetailPage({
     copyText: composePostText(c),
     // Same featured image for every platform of the post (may be null).
     featuredImageUrl: post.featuredImageUrl,
+    // Link to the live post on the platform (auto-published FB/LinkedIn/X only).
+    publishedUrl: buildPostUrl(c.platform, c.auditLogs?.[0]?.externalId ?? null),
   }));
 
   const pending: PendingItem[] = content

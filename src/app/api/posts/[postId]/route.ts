@@ -2,6 +2,7 @@ import type { ContentStatus, Platform } from "@prisma/client";
 
 import { requireOwner } from "@/lib/oauth/session";
 import { prisma } from "@/lib/prisma";
+import { buildPostUrl } from "@/lib/publishers/post-url";
 
 // Uses prisma (pg adapter) — Node runtime only.
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ interface ContentPreview {
   hashtags: string[];
   link: string;
   charCount: number;
+  publishedUrl: string | null;
 }
 
 interface PostDetailView {
@@ -62,6 +64,12 @@ export async function GET(
           hashtags: true,
           link: true,
           charCount: true,
+          auditLogs: {
+            where: { outcome: "SUCCESS", externalId: { not: null } },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { externalId: true },
+          },
         },
         orderBy: { platform: "asc" },
       },
@@ -84,6 +92,7 @@ export async function GET(
       hashtags: content.hashtags,
       link: content.link,
       charCount: content.charCount,
+      publishedUrl: buildPostUrl(content.platform, content.auditLogs?.[0]?.externalId ?? null),
     })),
   };
 

@@ -26,6 +26,8 @@ export interface ContentPreview {
   copyText: string;
   /** The post's featured image (same for every platform); null if none. */
   featuredImageUrl: string | null;
+  /** Link to the live post on the platform once published (FB/LinkedIn/X); null otherwise. */
+  publishedUrl: string | null;
 }
 
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -129,6 +131,20 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
         <span className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</span>
         <StatusBadge status={status} />
       </div>
+
+      {status === "PUBLISHED" && content.publishedUrl && (
+        <a
+          href={content.publishedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-success underline-offset-2 hover:underline"
+        >
+          View on {label}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
+          </svg>
+        </a>
+      )}
 
       <p className="mt-3 whitespace-pre-wrap break-words text-sm text-text">{content.body}</p>
 

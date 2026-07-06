@@ -39,6 +39,7 @@ const pending: ContentPreview = {
   charCount: 11,
   copyText: "Hello world\n\n#a\nhttps://blog.example.com/p",
   featuredImageUrl: null,
+  publishedUrl: null,
 };
 
 beforeEach(() => {
@@ -77,6 +78,31 @@ describe("PlatformPreviewCard", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/content/c1/reject", { method: "POST" });
     expect(await screen.findByText("Rejected.")).toBeInTheDocument(); // toast
     expect(screen.getByText("Rejected")).toBeInTheDocument(); // badge
+  });
+
+  it("PUBLISHED with a URL shows a 'View on <platform>' link", () => {
+    const published: ContentPreview = {
+      ...pending,
+      platform: "FACEBOOK",
+      status: "PUBLISHED",
+      publishedUrl: "https://www.facebook.com/515_123",
+    };
+    renderWithToast(<PlatformPreviewCard content={published} />);
+
+    const link = screen.getByRole("link", { name: /view on facebook/i });
+    expect(link).toHaveAttribute("href", "https://www.facebook.com/515_123");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("PUBLISHED without a URL shows no 'View on' link", () => {
+    const published: ContentPreview = {
+      ...pending,
+      platform: "TIKTOK",
+      status: "PUBLISHED",
+      publishedUrl: null,
+    };
+    renderWithToast(<PlatformPreviewCard content={published} />);
+    expect(screen.queryByRole("link", { name: /view on/i })).not.toBeInTheDocument();
   });
 
   it("copy → writes the full caption to the clipboard + toast", async () => {
