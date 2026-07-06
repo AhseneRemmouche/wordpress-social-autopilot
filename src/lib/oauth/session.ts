@@ -1,7 +1,7 @@
 import { getToken } from "next-auth/jwt";
 
 import { devAuthBypassEnabled } from "@/lib/dev";
-import { env } from "@/lib/env";
+import { env, isOwnerLogin } from "@/lib/env";
 
 /**
  * Owner-session guard for the OAuth + connections routes (FR-022).
@@ -24,8 +24,11 @@ export async function requireOwner(request: Request): Promise<boolean> {
 
   if (!token) return false;
 
+  // Sign-in stamps `owner` after the allowlist (login OR org membership) passes.
+  if ((token as { owner?: unknown }).owner === true) return true;
+
+  // Backward-compat for tokens issued before the `owner` claim existed: a present
+  // login must be on the allowlist; absence still passes (gate was at sign-in).
   const login = (token as { login?: unknown }).login;
-  // If a login claim is present it must match the owner; absence (older token)
-  // still passes because the allowlist was enforced at sign-in.
-  return typeof login !== "string" || login === env.OWNER_GITHUB_LOGIN;
+  return typeof login !== "string" || isOwnerLogin(login);
 }

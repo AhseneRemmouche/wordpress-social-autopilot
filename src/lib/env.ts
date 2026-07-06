@@ -36,7 +36,10 @@ export const envSchema = z.object({
   // --- Dashboard auth (GitHub) ---
   GITHUB_CLIENT_ID: nonEmpty,
   GITHUB_CLIENT_SECRET: nonEmpty,
+  // Comma-separated GitHub usernames allowed to sign in (see parseOwnerLogins).
   OWNER_GITHUB_LOGIN: nonEmpty,
+  // Optional: also allow any active member of this GitHub org (e.g. "MLS-Campus-Inc").
+  OWNER_GITHUB_ORG: z.string().optional(),
 
   // --- Claude ---
   ANTHROPIC_API_KEY: nonEmpty,
@@ -101,3 +104,21 @@ export function parseEnv(
  * invalid config). Import this for typed, guaranteed-present config values.
  */
 export const env: Env = parseEnv();
+
+/** Split a comma-separated owner allowlist into trimmed, non-empty logins. */
+export function parseOwnerLogins(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** GitHub usernames explicitly allowed to access the dashboard. */
+export const OWNER_GITHUB_LOGINS: readonly string[] = parseOwnerLogins(
+  env.OWNER_GITHUB_LOGIN,
+);
+
+/** True if `login` is on the owner allowlist (`OWNER_GITHUB_LOGIN`). */
+export function isOwnerLogin(login: string): boolean {
+  return OWNER_GITHUB_LOGINS.includes(login);
+}
