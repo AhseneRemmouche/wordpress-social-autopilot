@@ -7,14 +7,20 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/ToastProvider";
 
 interface CheckNewResult {
-  count: number;
+  imported: number;
+  generated: number;
+  pending: number;
 }
+
+const plural = (n: number): string => (n === 1 ? "" : "s");
 
 /**
  * Dashboard "Check for new posts" button (manual pull). POSTs to
- * /api/posts/check-new, which imports any newly published WordPress posts and
- * generates their platform drafts. On success it toasts the outcome and
- * refreshes so the new row(s) appear (PostsFeed also polls every ~5s).
+ * /api/posts/check-new, which imports newly published WordPress posts and
+ * generates their platform drafts within a time budget. On success it toasts the
+ * outcome and refreshes so the new row(s) appear (PostsFeed also polls every ~5s).
+ * If a backlog didn't finish in one shot (`pending > 0`), it says so — clicking
+ * again resumes the rest.
  */
 export function CheckNewPostsButton(): ReactElement {
   const router = useRouter();
@@ -26,11 +32,15 @@ export function CheckNewPostsButton(): ReactElement {
     try {
       const res = await fetch("/api/posts/check-new", { method: "POST" });
       if (!res.ok) throw new Error(`Check failed (${res.status})`);
-      const { count } = (await res.json()) as CheckNewResult;
-      if (count > 0) {
+      const { generated, pending } = (await res.json()) as CheckNewResult;
+
+      if (pending > 0) {
         toast.success(
-          `Imported & generated ${count} new post${count > 1 ? "s" : ""}.`,
+          `Generated ${generated} — ${pending} more to process. Click again to finish.`,
         );
+        router.refresh();
+      } else if (generated > 0) {
+        toast.success(`Imported & generated ${generated} new post${plural(generated)}.`);
         router.refresh();
       } else {
         toast.success("No new posts.");
