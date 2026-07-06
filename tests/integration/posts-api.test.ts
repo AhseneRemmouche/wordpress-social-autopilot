@@ -129,8 +129,33 @@ describe("GET /api/posts/[postId] (FR-023)", () => {
       hashtags: ["#widgets"],
       link: "https://blog.example.com/widgets",
       charCount: 1320,
+      publishedUrl: null,
     });
     expect(body.content[1]?.status).toBe("MANUAL_REQUIRED");
+  });
+
+  it("builds publishedUrl from the latest successful publish id", async () => {
+    findUnique.mockResolvedValue({
+      id: "wp-1",
+      title: "t",
+      url: "u",
+      generatedContent: [
+        {
+          id: "gc-fb",
+          platform: "FACEBOOK",
+          status: "PUBLISHED",
+          body: "b",
+          hashtags: [],
+          link: "u",
+          charCount: 1,
+          auditLogs: [{ externalId: "515_123" }],
+        },
+      ],
+    });
+
+    const res = await getPost(req("http://localhost:3000/api/posts/wp-1"), detailContext("wp-1"));
+    const body = (await res.json()) as { content: Array<{ publishedUrl: string | null }> };
+    expect(body.content[0]?.publishedUrl).toBe("https://www.facebook.com/515_123");
   });
 
   it("404 when the post does not exist", async () => {
