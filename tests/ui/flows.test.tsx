@@ -121,16 +121,20 @@ describe("AutoPublishToggle", () => {
 });
 
 describe("CheckNewPostsButton", () => {
-  function jsonFetch(count: number): ReturnType<typeof vi.fn> {
+  function jsonFetch(body: {
+    imported: number;
+    generated: number;
+    pending: number;
+  }): ReturnType<typeof vi.fn> {
     return vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ count }),
+      json: () => Promise.resolve(body),
     });
   }
 
-  it("imported → POST, success toast, refresh", async () => {
-    const fetchMock = jsonFetch(1);
+  it("generated → POST, success toast, refresh", async () => {
+    const fetchMock = jsonFetch({ imported: 1, generated: 1, pending: 0 });
     vi.stubGlobal("fetch", fetchMock);
     renderWithToast(<CheckNewPostsButton />);
 
@@ -141,8 +145,20 @@ describe("CheckNewPostsButton", () => {
     expect(routerMock.refresh).toHaveBeenCalled();
   });
 
+  it("backlog → 'click again to finish', refresh", async () => {
+    vi.stubGlobal("fetch", jsonFetch({ imported: 3, generated: 2, pending: 1 }));
+    renderWithToast(<CheckNewPostsButton />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Check for new posts" }));
+
+    expect(
+      await screen.findByText(/Generated 2 — 1 more to process\. Click again to finish\./i),
+    ).toBeInTheDocument();
+    expect(routerMock.refresh).toHaveBeenCalled();
+  });
+
   it("nothing new → 'No new posts', no refresh", async () => {
-    vi.stubGlobal("fetch", jsonFetch(0));
+    vi.stubGlobal("fetch", jsonFetch({ imported: 0, generated: 0, pending: 0 }));
     renderWithToast(<CheckNewPostsButton />);
 
     await userEvent.click(screen.getByRole("button", { name: "Check for new posts" }));
