@@ -21,6 +21,7 @@ import { requireOwner } from "@/lib/oauth/session";
 import { prisma } from "@/lib/prisma";
 import { enqueuePublish } from "@/lib/queue/enqueue";
 import { POST as approve } from "@/app/api/content/[contentId]/approve/route";
+import { POST as markPublished } from "@/app/api/content/[contentId]/mark-published/route";
 import { POST as reject } from "@/app/api/content/[contentId]/reject/route";
 import { POST as retry } from "@/app/api/content/[contentId]/retry/route";
 
@@ -149,6 +150,37 @@ describe("retry (FR-026)", () => {
   it("401 unauthenticated", async () => {
     requireOwnerMock.mockResolvedValue(false);
     const res = await retry(req(), ctx());
+    expect(res.status).toBe(401);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("mark-published (manual publishing)", () => {
+  it("MANUAL_REQUIRED → PUBLISHED", async () => {
+    findUnique.mockResolvedValue({ id: "c1", status: "MANUAL_REQUIRED" });
+
+    const res = await markPublished(req(), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "PUBLISHED" });
+    expect(update).toHaveBeenCalledWith({ where: { id: "c1" }, data: { status: "PUBLISHED" } });
+  });
+
+  it("non-MANUAL_REQUIRED → 409, no status change", async () => {
+    findUnique.mockResolvedValue({ id: "c1", status: "PENDING" });
+    const res = await markPublished(req(), ctx());
+    expect(res.status).toBe(409);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("404 when content is missing", async () => {
+    const res = await markPublished(req(), ctx());
+    expect(res.status).toBe(404);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("401 unauthenticated (no DB)", async () => {
+    requireOwnerMock.mockResolvedValue(false);
+    const res = await markPublished(req(), ctx());
     expect(res.status).toBe(401);
     expect(findUnique).not.toHaveBeenCalled();
   });

@@ -37,6 +37,8 @@ const pending: ContentPreview = {
   hashtags: ["#a"],
   link: "https://blog.example.com/p",
   charCount: 11,
+  copyText: "Hello world\n\n#a\nhttps://blog.example.com/p",
+  featuredImageUrl: null,
 };
 
 beforeEach(() => {
@@ -75,6 +77,36 @@ describe("PlatformPreviewCard", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/content/c1/reject", { method: "POST" });
     expect(await screen.findByText("Rejected.")).toBeInTheDocument(); // toast
     expect(screen.getByText("Rejected")).toBeInTheDocument(); // badge
+  });
+
+  it("copy → writes the full caption to the clipboard + toast", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    renderWithToast(<PlatformPreviewCard content={pending} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(writeText).toHaveBeenCalledWith(pending.copyText);
+    expect(await screen.findByText(/copied to clipboard/i)).toBeInTheDocument();
+  });
+
+  it("MANUAL_REQUIRED → 'Mark as published' POSTs mark-published, optimistic PUBLISHED", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const manual: ContentPreview = { ...pending, contentId: "c9", status: "MANUAL_REQUIRED" };
+    renderWithToast(<PlatformPreviewCard content={manual} />);
+
+    // Manual cards have no Approve/Reject, but do have Mark as published.
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mark as published" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/content/c9/mark-published", { method: "POST" });
+    expect(await screen.findByText(/marked as published/i)).toBeInTheDocument();
+    expect(screen.getByText("Published")).toBeInTheDocument(); // optimistic badge
+    expect(routerMock.refresh).toHaveBeenCalled();
   });
 });
 
