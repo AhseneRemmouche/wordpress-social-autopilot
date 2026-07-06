@@ -105,6 +105,20 @@ describe("PlatformPreviewCard", () => {
     expect(screen.queryByRole("link", { name: /view on/i })).not.toBeInTheDocument();
   });
 
+  it("YouTube (Manual) card links to where you post it", () => {
+    const yt: ContentPreview = { ...pending, platform: "YOUTUBE", status: "MANUAL_REQUIRED" };
+    renderWithToast(<PlatformPreviewCard content={yt} />);
+
+    const link = screen.getByRole("link", { name: /post on youtube/i });
+    expect(link).toHaveAttribute("href", "https://studio.youtube.com");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("auto-publish platforms (LinkedIn) show no 'Post on' link", () => {
+    renderWithToast(<PlatformPreviewCard content={pending} />);
+    expect(screen.queryByRole("link", { name: /post on/i })).not.toBeInTheDocument();
+  });
+
   it("copy → writes the full caption to the clipboard + toast", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
