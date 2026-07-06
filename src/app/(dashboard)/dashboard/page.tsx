@@ -1,5 +1,6 @@
 import { Suspense, type ReactElement } from "react";
 
+import { CheckNewPostsButton } from "@/components/CheckNewPostsButton";
 import { DashboardToolbar } from "@/components/DashboardToolbar";
 import { PostsFeed, PostsFeedSkeleton } from "@/components/PostsFeed";
 import type { PostSummary } from "@/components/PostRow";
@@ -46,11 +47,14 @@ export default async function DashboardPage(): Promise<ReactElement> {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-text">Posts</h1>
-        <p className="mt-1 text-sm text-muted">
-          Generated content per WordPress publish. Status updates live.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-text">Posts</h1>
+          <p className="mt-1 text-sm text-muted">
+            Generated content per WordPress publish. Status updates live.
+          </p>
+        </div>
+        <CheckNewPostsButton />
       </div>
 
       {/* Toolbar + feed both read the URL query, so they sit in a Suspense boundary. */}

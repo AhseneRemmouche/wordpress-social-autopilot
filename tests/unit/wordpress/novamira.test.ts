@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { env } from "@/lib/env";
-import { NovaMiraError, fetchFullPost } from "@/lib/wordpress/novamira";
+import {
+  NovaMiraError,
+  fetchFullPost,
+  fetchLatestPostIds,
+} from "@/lib/wordpress/novamira";
 
 const FULL_POST = {
   wpPostId: "1234",
@@ -108,6 +112,51 @@ describe("fetchFullPost — unretrievable throws NovaMiraError (no partial publi
         name: "NovaMiraError",
         cause: networkError,
       },
+    );
+  });
+});
+
+describe("fetchLatestPostIds (dashboard new-post discovery)", () => {
+  const LATEST = [
+    { id: 42025, link: "https://mlscampus.com/a" },
+    { id: 42023, link: "https://mlscampus.com/b" },
+  ];
+
+  it("maps the WP REST list to { wpPostId, url }", async () => {
+    const fetchImpl = mockFetch(() => Promise.resolve(jsonResponse(LATEST)));
+    const refs = await fetchLatestPostIds(2, fetchImpl);
+
+    expect(refs).toEqual([
+      { wpPostId: "42025", url: "https://mlscampus.com/a" },
+      { wpPostId: "42023", url: "https://mlscampus.com/b" },
+    ]);
+  });
+
+  it("calls the site's public WP REST endpoint with the expected query", async () => {
+    const fn = vi.fn<typeof fetch>(() => Promise.resolve(jsonResponse(LATEST)));
+    await fetchLatestPostIds(5, fn);
+
+    const calledUrl = fn.mock.calls[0]?.[0] as string;
+    expect(calledUrl.startsWith(env.WORDPRESS_SITE_URL.replace(/\/+$/, ""))).toBe(true);
+    expect(calledUrl).toContain("/wp-json/wp/v2/posts");
+    expect(calledUrl).toContain("per_page=5");
+    expect(calledUrl).toContain("orderby=date");
+    expect(calledUrl).toContain("_fields=id,link");
+  });
+
+  it("throws NovaMiraError on a non-2xx response", async () => {
+    const fetchImpl = mockFetch(() =>
+      Promise.resolve(new Response("nope", { status: 500 })),
+    );
+    await expect(fetchLatestPostIds(3, fetchImpl)).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("throws NovaMiraError on an unexpected shape", async () => {
+    const fetchImpl = mockFetch(() =>
+      Promise.resolve(jsonResponse([{ id: "not-a-number" }])),
+    );
+    await expect(fetchLatestPostIds(3, fetchImpl)).rejects.toBeInstanceOf(
+      NovaMiraError,
     );
   });
 });
