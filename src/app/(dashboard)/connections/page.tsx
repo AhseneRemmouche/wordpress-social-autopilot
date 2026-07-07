@@ -3,7 +3,7 @@ import { Suspense, type ReactElement } from "react";
 
 import { ConnectionCard, type ConnectionView } from "@/components/ConnectionCard";
 import { OAuthReturnToast } from "@/components/OAuthReturnToast";
-import { platformAutoRenews } from "@/lib/oauth/config";
+import { accountAutoRenews } from "@/lib/oauth/config";
 import { prisma } from "@/lib/prisma";
 
 // Always render fresh (owner-gated by the (dashboard) layout).
@@ -30,8 +30,15 @@ const PLATFORM_LABEL: Record<Platform, string> = {
 /** Per-platform connection view for all six platforms (missing rows → DISCONNECTED). */
 async function loadConnections(): Promise<ConnectionView[]> {
   const accounts = await prisma.platformAccount.findMany({
-    // Never read token columns into the page.
-    select: { platform: true, status: true, expiresAt: true, autoPublish: true },
+    // `refreshToken` is read only to derive the boolean `autoRenews`; the token
+    // ciphertext itself is never rendered into the page.
+    select: {
+      platform: true,
+      status: true,
+      expiresAt: true,
+      autoPublish: true,
+      refreshToken: true,
+    },
   });
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
 
@@ -42,7 +49,7 @@ async function loadConnections(): Promise<ConnectionView[]> {
       status: account?.status ?? "DISCONNECTED",
       expiresAt: account?.expiresAt?.toISOString() ?? null,
       autoPublish: account?.autoPublish ?? false,
-      autoRenews: platformAutoRenews(platform),
+      autoRenews: accountAutoRenews(platform, Boolean(account?.refreshToken)),
     };
   });
 }

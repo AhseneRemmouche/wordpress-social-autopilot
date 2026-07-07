@@ -54,16 +54,17 @@ describe("/api/worker/token-check — fail-closed expiry reminder", () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 
-  it("alerts a soon-expiring non-refreshable account, skips refreshable ones", async () => {
+  it("reminds only genuinely-expiring accounts; skips auto-renewing ones", async () => {
     h.env.CRON_SECRET = "s3cret";
     findMany.mockResolvedValue([
-      acct({ platform: "LINKEDIN" }), // Meta/LinkedIn don't refresh → remind
-      acct({ platform: "X" }), // X auto-refreshes → skip
+      acct({ platform: "LINKEDIN", refreshToken: null }), // no refresh token → remind
+      acct({ platform: "X", refreshToken: "enc(x)" }), // refresh provider + token → skip
+      acct({ platform: "FACEBOOK", refreshToken: null }), // Meta Page token non-expiring → skip
     ]);
 
     const res = await POST(req("POST", "Bearer s3cret"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, checked: 2, alerted: 1 });
+    expect(await res.json()).toEqual({ ok: true, checked: 3, alerted: 1 });
 
     expect(alertMock).toHaveBeenCalledOnce();
     expect(alertMock.mock.calls[0]?.[0]).toContain("LINKEDIN");
