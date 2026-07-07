@@ -122,6 +122,58 @@ describe("PlatformPreviewCard", () => {
     expect(screen.queryByText(/should not show/i)).not.toBeInTheDocument();
   });
 
+  it("edit → textarea appears, Save PATCHes the new body", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithToast(<PlatformPreviewCard content={pending} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const textarea = screen.getByRole("textbox", { name: /edit linkedin caption/i });
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "Edited caption");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/content/c1", expect.objectContaining({ method: "PATCH" }));
+    const sent = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
+    expect(sent.body).toBe("Edited caption");
+    expect(await screen.findByText(/caption updated/i)).toBeInTheDocument();
+    expect(routerMock.refresh).toHaveBeenCalled();
+  });
+
+  it("edit → Cancel exits without saving", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithToast(<PlatformPreviewCard content={pending} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("regenerate → POSTs to the regenerate endpoint", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithToast(<PlatformPreviewCard content={pending} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/content/c1/regenerate", { method: "POST" });
+    expect(await screen.findByText(/regenerated a fresh caption/i)).toBeInTheDocument();
+    expect(routerMock.refresh).toHaveBeenCalled();
+  });
+
+  it("PUBLISHED card offers neither Edit nor Regenerate", () => {
+    renderWithToast(
+      <PlatformPreviewCard
+        content={{ ...pending, status: "PUBLISHED", publishedUrl: "https://x/1" }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+  });
+
   it("YouTube (Manual) card links to where you post it", () => {
     const yt: ContentPreview = { ...pending, platform: "YOUTUBE", status: "MANUAL_REQUIRED" };
     renderWithToast(<PlatformPreviewCard content={yt} />);

@@ -92,10 +92,16 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [optimistic, setOptimistic] = useState<ContentStatus | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState(content.body);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const label = PLATFORM_LABEL[content.platform];
   const status = optimistic ?? content.status;
   const busy = busyAction !== null;
+  // Any in-flight action disables the other controls.
+  const actionsDisabled = busy || regenerating;
   // Manual channels (YouTube/TikTok) — where to go to post it yourself.
   const hubUrl = publishHubUrl(content.platform);
 
@@ -130,6 +136,39 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
     }
   }
 
+  async function saveEdit(): Promise<void> {
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/content/${content.contentId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body: draftBody, hashtags: content.hashtags }),
+      });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      toast.success("Caption updated.", label);
+      setEditing(false);
+      router.refresh();
+    } catch {
+      toast.error("Couldn't save the edit. Please try again.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function regenerate(): Promise<void> {
+    setRegenerating(true);
+    try {
+      const res = await fetch(`/api/content/${content.contentId}/regenerate`, { method: "POST" });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      toast.success("Regenerated a fresh caption.", label);
+      router.refresh();
+    } catch {
+      toast.error(`Couldn't regenerate ${label}. Please try again.`);
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   return (
     <Card className="flex flex-col">
       <div className="flex items-center justify-between gap-2">
@@ -160,7 +199,16 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
         </p>
       )}
 
-      <p className="mt-3 whitespace-pre-wrap break-words text-sm text-text">{content.body}</p>
+      {editing ? (
+        <textarea
+          aria-label={`Edit ${label} caption`}
+          value={draftBody}
+          onChange={(e) => setDraftBody(e.target.value)}
+          className="mt-3 min-h-32 w-full resize-y rounded-md border border-border bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info"
+        />
+      ) : (
+        <p className="mt-3 whitespace-pre-wrap break-words text-sm text-text">{content.body}</p>
+      )}
 
       {content.hashtags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -220,51 +268,95 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
           </div>
         )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="secondary" onClick={() => void copyCaption()} disabled={busy}>
-          Copy
-        </Button>
-
-        {hubUrl && status !== "PUBLISHED" && (
-          <a
-            href={hubUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-muted"
-          >
-            Post on {label} ↗
-          </a>
-        )}
-
-        {status === "MANUAL_REQUIRED" && (
+      {editing ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void saveEdit()} loading={savingEdit}>
+            Save
+          </Button>
           <Button
             size="sm"
-            onClick={() => void act("publish")}
-            loading={busyAction === "publish"}
-            disabled={busy}
+            variant="secondary"
+            onClick={() => setEditing(false)}
+            disabled={savingEdit}
           >
-            Mark as published
+            Cancel
           </Button>
-        )}
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={() => void copyCaption()} disabled={actionsDisabled}>
+            Copy
+          </Button>
 
-        {status === "PENDING" && (
-          <>
-            <Button size="sm" onClick={() => void act("approve")} loading={busyAction === "approve"} disabled={busy}>
-              Approve
-            </Button>
+          {hubUrl && status !== "PUBLISHED" && (
+            <a
+              href={hubUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-muted"
+            >
+              Post on {label} ↗
+            </a>
+          )}
+
+          {/* Edit the caption before it publishes (any state except already-live). */}
+          {status !== "PUBLISHED" && (
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setConfirmReject(true)}
+              onClick={() => {
+                setDraftBody(content.body);
+                setEditing(true);
+              }}
+              disabled={actionsDisabled}
+            >
+              Edit
+            </Button>
+          )}
+
+          {/* Re-run Claude for a fresh caption (awaiting review states only). */}
+          {(status === "PENDING" || status === "FAILED") && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void regenerate()}
+              loading={regenerating}
               disabled={busy}
             >
-              Reject
+              Regenerate
             </Button>
-          </>
-        )}
-      </div>
+          )}
 
-      <RetryButton contentId={content.contentId} status={status} />
+          {status === "MANUAL_REQUIRED" && (
+            <Button
+              size="sm"
+              onClick={() => void act("publish")}
+              loading={busyAction === "publish"}
+              disabled={actionsDisabled}
+            >
+              Mark as published
+            </Button>
+          )}
+
+          {status === "PENDING" && (
+            <>
+              <Button size="sm" onClick={() => void act("approve")} loading={busyAction === "approve"} disabled={actionsDisabled}>
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setConfirmReject(true)}
+                disabled={actionsDisabled}
+              >
+                Reject
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!editing && <RetryButton contentId={content.contentId} status={status} />}
 
       <ConfirmDialog
         open={confirmReject}

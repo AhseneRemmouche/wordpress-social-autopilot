@@ -15,14 +15,14 @@ vi.mock("@/lib/ai/client", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     platformAccount: { findMany: vi.fn() },
-    generatedContent: { create: vi.fn() },
+    generatedContent: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     wordPressPost: { update: vi.fn() },
   },
 }));
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
 vi.mock("@/lib/queue/enqueue", () => ({ enqueuePublish: vi.fn() }));
 
-import { generateForPost } from "@/lib/ai/generate";
+import { generateForPost, regeneratePlatform } from "@/lib/ai/generate";
 import type { GeneratedOutput } from "@/lib/ai/schemas";
 import { writeAudit } from "@/lib/audit";
 import { getCharLimit } from "@/lib/limits";
@@ -31,6 +31,8 @@ import { enqueuePublish } from "@/lib/queue/enqueue";
 
 const findMany = prisma.platformAccount.findMany as unknown as Mock;
 const create = prisma.generatedContent.create as unknown as Mock;
+const findUniqueContent = prisma.generatedContent.findUnique as unknown as Mock;
+const updateContent = prisma.generatedContent.update as unknown as Mock;
 const update = prisma.wordPressPost.update as unknown as Mock;
 const writeAuditMock = writeAudit as unknown as Mock;
 const enqueueMock = enqueuePublish as unknown as Mock;
@@ -101,6 +103,8 @@ beforeEach(() => {
       Promise.resolve({ id: `gc-${arg.data.platform}` }),
     );
   update.mockReset().mockResolvedValue({});
+  findUniqueContent.mockReset().mockResolvedValue(null);
+  updateContent.mockReset().mockResolvedValue({});
   writeAuditMock.mockReset();
   enqueueMock.mockReset();
 });
@@ -172,5 +176,46 @@ describe("generateForPost (plan §4 / Principle VII)", () => {
     expect(enqueueMock).toHaveBeenCalledWith("gc-LINKEDIN");
     // A platform with no connected/auto-publish account stays PENDING.
     expect(createdFor("FACEBOOK")?.status).toBe("PENDING");
+  });
+});
+
+describe("regeneratePlatform (single-platform re-run)", () => {
+  it("re-runs Claude and overwrites the caption, resetting it to PENDING", async () => {
+    findUniqueContent.mockResolvedValue({
+      id: "gc-1",
+      platform: "LINKEDIN" as Platform,
+      link: POST.url,
+      post: POST,
+    });
+
+    const result = await regeneratePlatform("gc-1");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.body).toContain(POST.url); // backlink preserved (FR-009)
+      expect(result.body.length).toBeLessThanOrEqual(getCharLimit("LINKEDIN")); // FR-011
+      expect(result.charCount).toBe(result.body.length);
+    }
+    expect(updateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "gc-1" },
+        data: expect.objectContaining({ status: "PENDING" }),
+      }),
+    );
+  });
+
+  it("returns { ok:false } and writes nothing when the model output is unusable", async () => {
+    findUniqueContent.mockResolvedValue({ id: "gc-1", platform: "X" as Platform, link: POST.url, post: POST });
+    h.responses.set("X", { parsed_output: null });
+
+    const result = await regeneratePlatform("gc-1");
+
+    expect(result.ok).toBe(false);
+    expect(updateContent).not.toHaveBeenCalled();
+  });
+
+  it("returns { ok:false } when the content is missing", async () => {
+    findUniqueContent.mockResolvedValue(null);
+    expect(await regeneratePlatform("gone")).toEqual({ ok: false, error: "content not found" });
   });
 });

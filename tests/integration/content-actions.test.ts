@@ -16,12 +16,16 @@ vi.mock("@/lib/prisma", () => {
 });
 vi.mock("@/lib/queue/enqueue", () => ({ enqueuePublish: vi.fn() }));
 vi.mock("@/lib/oauth/session", () => ({ requireOwner: vi.fn() }));
+vi.mock("@/lib/ai/generate", () => ({ regeneratePlatform: vi.fn() }));
 
+import { regeneratePlatform } from "@/lib/ai/generate";
 import { requireOwner } from "@/lib/oauth/session";
 import { prisma } from "@/lib/prisma";
 import { enqueuePublish } from "@/lib/queue/enqueue";
+import { PATCH as editContent } from "@/app/api/content/[contentId]/route";
 import { POST as approve } from "@/app/api/content/[contentId]/approve/route";
 import { POST as markPublished } from "@/app/api/content/[contentId]/mark-published/route";
+import { POST as regenerate } from "@/app/api/content/[contentId]/regenerate/route";
 import { POST as reject } from "@/app/api/content/[contentId]/reject/route";
 import { POST as retry } from "@/app/api/content/[contentId]/retry/route";
 
@@ -32,9 +36,16 @@ const updateMany = prisma.publishJob.updateMany as unknown as Mock;
 const createJob = prisma.publishJob.create as unknown as Mock;
 const enqueueMock = enqueuePublish as unknown as Mock;
 const requireOwnerMock = requireOwner as unknown as Mock;
+const regenMock = regeneratePlatform as unknown as Mock;
 
 const req = () =>
   new Request("http://localhost:3000/api/content/c1/action", { method: "POST" });
+const patchReq = (payload: unknown) =>
+  new Request("http://localhost:3000/api/content/c1", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 const ctx = (contentId = "c1") => ({ params: Promise.resolve({ contentId }) });
 
 beforeEach(() => {
@@ -45,6 +56,7 @@ beforeEach(() => {
   updateMany.mockReset().mockResolvedValue({ count: 1 });
   createJob.mockReset().mockResolvedValue({});
   enqueueMock.mockReset().mockResolvedValue(undefined);
+  regenMock.mockReset().mockResolvedValue({ ok: true, body: "fresh copy", hashtags: ["#x"], charCount: 10 });
 });
 
 describe("approve (FR-015)", () => {
@@ -183,5 +195,111 @@ describe("mark-published (manual publishing)", () => {
     const res = await markPublished(req(), ctx());
     expect(res.status).toBe(401);
     expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("edit caption (PATCH)", () => {
+  const editable = {
+    status: "PENDING",
+    platform: "LINKEDIN",
+    link: "https://blog.example.com/p",
+    hashtags: ["#a"],
+  };
+
+  it("overwrites the body, re-applies the limit, and recomputes charCount", async () => {
+    findUnique.mockResolvedValue(editable);
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve(data));
+
+    const res = await editContent(patchReq({ body: "A better caption" }), ctx());
+    expect(res.status).toBe(200);
+
+    const data = update.mock.calls[0]?.[0]?.data as { body: string; charCount: number; hashtags: string[] };
+    expect(data.body).toContain("A better caption");
+    expect(data.body).toContain("https://blog.example.com/p"); // backlink preserved
+    expect(data.charCount).toBe(data.body.length);
+    expect(data.hashtags).toEqual(["#a"]); // kept when omitted
+  });
+
+  it("accepts new hashtags when provided", async () => {
+    findUnique.mockResolvedValue(editable);
+    await editContent(patchReq({ body: "Hi", hashtags: ["#new"] }), ctx());
+    expect(update.mock.calls[0]?.[0]?.data?.hashtags).toEqual(["#new"]);
+  });
+
+  it("cannot edit a PUBLISHED item → 409", async () => {
+    findUnique.mockResolvedValue({ ...editable, status: "PUBLISHED" });
+    const res = await editContent(patchReq({ body: "x" }), ctx());
+    expect(res.status).toBe(409);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("400 on an empty body", async () => {
+    findUnique.mockResolvedValue(editable);
+    const res = await editContent(patchReq({ body: "" }), ctx());
+    expect(res.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("404 when content is missing", async () => {
+    const res = await editContent(patchReq({ body: "x" }), ctx());
+    expect(res.status).toBe(404);
+  });
+
+  it("401 unauthenticated (no DB)", async () => {
+    requireOwnerMock.mockResolvedValue(false);
+    const res = await editContent(patchReq({ body: "x" }), ctx());
+    expect(res.status).toBe(401);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("regenerate (POST)", () => {
+  it("PENDING → re-runs Claude and returns the fresh, PENDING copy", async () => {
+    findUnique.mockResolvedValue({ status: "PENDING" });
+
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "PENDING",
+      body: "fresh copy",
+      hashtags: ["#x"],
+      charCount: 10,
+    });
+    expect(regenMock).toHaveBeenCalledWith("c1");
+  });
+
+  it("FAILED is also regenerable", async () => {
+    findUnique.mockResolvedValue({ status: "FAILED" });
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(200);
+    expect(regenMock).toHaveBeenCalledOnce();
+  });
+
+  it("APPROVED/PUBLISHED → 409, does not regenerate", async () => {
+    findUnique.mockResolvedValue({ status: "APPROVED" });
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(409);
+    expect(regenMock).not.toHaveBeenCalled();
+  });
+
+  it("502 when the model fails", async () => {
+    findUnique.mockResolvedValue({ status: "PENDING" });
+    regenMock.mockResolvedValue({ ok: false, error: "Empty or unusable model output" });
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(502);
+  });
+
+  it("404 when content is missing", async () => {
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(404);
+    expect(regenMock).not.toHaveBeenCalled();
+  });
+
+  it("401 unauthenticated (no DB, no regenerate)", async () => {
+    requireOwnerMock.mockResolvedValue(false);
+    const res = await regenerate(req(), ctx());
+    expect(res.status).toBe(401);
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(regenMock).not.toHaveBeenCalled();
   });
 });

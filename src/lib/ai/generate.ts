@@ -76,17 +76,17 @@ function createContentRow(
   });
 }
 
-async function generatePlatform(
-  post: WordPressPost,
-  postInput: PostInput,
+/**
+ * Call Claude for one platform and return the validated structured output, or a
+ * failure reason (empty/unusable output or a thrown error). Shared by the initial
+ * generation pass and single-platform regeneration.
+ */
+async function callModel(
   platform: Platform,
-  account: PlatformAccount | undefined,
-): Promise<void> {
+  postInput: PostInput,
+): Promise<{ output: GeneratedOutput | null; failureReason: string | null }> {
   const prompt = PLATFORM_PROMPTS[platform];
   const schema = PLATFORM_OUTPUT_SCHEMAS[platform];
-
-  let output: GeneratedOutput | null = null;
-  let failureReason: string | null = null;
 
   try {
     const message = await anthropic.messages.parse({
@@ -99,13 +99,21 @@ async function generatePlatform(
     });
     const parsed = message.parsed_output;
     if (!parsed || parsed.body.trim().length === 0) {
-      failureReason = "Empty or unusable model output";
-    } else {
-      output = parsed;
+      return { output: null, failureReason: "Empty or unusable model output" };
     }
+    return { output: parsed, failureReason: null };
   } catch (error) {
-    failureReason = generationErrorReason(error);
+    return { output: null, failureReason: generationErrorReason(error) };
   }
+}
+
+async function generatePlatform(
+  post: WordPressPost,
+  postInput: PostInput,
+  platform: Platform,
+  account: PlatformAccount | undefined,
+): Promise<void> {
+  const { output, failureReason } = await callModel(platform, postInput);
 
   // Unusable/empty output → FAILED with a recorded reason (no partial publish).
   if (!output) {
@@ -166,4 +174,34 @@ export async function generateForPost(post: WordPressPost): Promise<void> {
     where: { id: post.id },
     data: { generatedAt: new Date() },
   });
+}
+
+/**
+ * Re-run Claude for a single existing content item and overwrite its copy
+ * (body + hashtags + charCount), resetting it to PENDING for re-approval. Used by
+ * the "Regenerate" action when the owner doesn't like the generated caption. Does
+ * NOT create a new row or enqueue — the caller (route) gates on PENDING/FAILED.
+ */
+export async function regeneratePlatform(
+  contentId: string,
+): Promise<
+  | { ok: true; body: string; hashtags: string[]; charCount: number }
+  | { ok: false; error: string }
+> {
+  const content = await prisma.generatedContent.findUnique({
+    where: { id: contentId },
+    include: { post: true },
+  });
+  if (!content) return { ok: false, error: "content not found" };
+
+  const { output, failureReason } = await callModel(content.platform, toPostInput(content.post));
+  if (!output) return { ok: false, error: failureReason ?? "generation failed" };
+
+  const body = truncateToLimit(output.body, content.link, content.platform); // FR-009/FR-011
+  await prisma.generatedContent.update({
+    where: { id: contentId },
+    data: { body, hashtags: output.hashtags, charCount: body.length, status: "PENDING" },
+  });
+
+  return { ok: true, body, hashtags: output.hashtags, charCount: body.length };
 }
