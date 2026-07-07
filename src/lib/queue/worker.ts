@@ -30,6 +30,33 @@ export interface TickResult {
  */
 export const TICK_BUDGET_MS = 20_000;
 
+/**
+ * A job left in RUNNING longer than this is presumed abandoned — a previous tick
+ * claimed it (QUEUED→RUNNING) then died mid-publish (e.g. the serverless function
+ * hit its ~26s cap before `processJob` finished). Because the publish pass only
+ * selects QUEUED jobs, such a job would otherwise strand forever. This threshold
+ * is set well above `TICK_BUDGET_MS` so a job a concurrent tick is *actively*
+ * running is never reclaimed out from under it.
+ */
+export const STALE_RUNNING_MS = 3 * 60_000;
+
+/**
+ * Reclaim abandoned RUNNING jobs back to QUEUED so they retry on this tick.
+ * Safe against a concurrent tick: the reclaimed job is re-claimed atomically in
+ * `processJob`, and the already-PUBLISHED guard prevents any double-post.
+ */
+export async function reclaimStaleRunningJobs(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RUNNING_MS);
+  const { count } = await prisma.publishJob.updateMany({
+    where: { status: "RUNNING", updatedAt: { lt: cutoff } },
+    data: { status: "QUEUED" },
+  });
+  if (count > 0) {
+    console.warn(`[worker] reclaimed ${count} stale RUNNING job(s) to QUEUED`);
+  }
+  return count;
+}
+
 /** Run the generation pass: process not-yet-generated posts until the deadline. */
 export async function runGenerationPass(limit = 25, deadline = Infinity): Promise<number> {
   const posts = await prisma.wordPressPost.findMany({
@@ -61,6 +88,10 @@ export interface PublishPassResult {
 
 /** Run the publish pass: drain due jobs until the deadline; count permanent failures. */
 export async function runPublishPass(limit = 50, deadline = Infinity): Promise<PublishPassResult> {
+  // Rescue any jobs stranded in RUNNING by a crashed/timed-out earlier tick, so
+  // they become due again and get drained below instead of stalling forever.
+  await reclaimStaleRunningJobs();
+
   const jobs = await prisma.publishJob.findMany({
     where: { status: "QUEUED", nextRunAt: { lte: new Date() } },
     orderBy: { nextRunAt: "asc" },
