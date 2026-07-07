@@ -41,6 +41,16 @@ export const envSchema = z.object({
   // Optional: also allow any active member of this GitHub org (e.g. "MLS-Campus-Inc").
   OWNER_GITHUB_ORG: z.string().optional(),
 
+  // --- Shared team login (optional) ---
+  // When TEAM_LOGIN_PASSWORD is set, the whole team can sign in with a single
+  // shared email + password and get full owner access — no per-person GitHub
+  // account required. The email defaults to support@mlscampus.com; override
+  // with TEAM_LOGIN_EMAIL. Unset password → the shared login is disabled and
+  // the dashboard stays GitHub-only. Set the password only via the deploy
+  // environment (Netlify), never in the repo.
+  TEAM_LOGIN_EMAIL: z.email().optional(),
+  TEAM_LOGIN_PASSWORD: z.string().min(8).optional(),
+
   // --- Claude ---
   ANTHROPIC_API_KEY: nonEmpty,
 

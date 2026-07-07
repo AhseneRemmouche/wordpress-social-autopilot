@@ -1,13 +1,41 @@
 import type { NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider, { type GithubProfile } from "next-auth/providers/github";
 
 import { env, isOwnerLogin } from "@/lib/env";
 import { isOrgMember } from "@/lib/oauth/github-org";
+import { TEAM_USER, teamLoginEnabled, verifyTeamCredentials } from "@/lib/team-login";
+
+/** Provider id for the shared team email+password login. */
+export const TEAM_PROVIDER_ID = "team";
 
 /**
- * NextAuth v4 configuration (FR-022, plan §7). This is a single-owner dashboard:
- * GitHub is the only identity provider, sessions are stateless JWTs, and the
- * `signIn` callback allowlists exactly ONE GitHub login (`OWNER_GITHUB_LOGIN`).
+ * Optional shared team login (see {@link file://src/lib/team-login.ts}): one
+ * email+password the whole team uses. Only registered when a password is
+ * configured; `authorize` fully validates the credentials, so the `signIn`
+ * callback can trust this provider unconditionally.
+ */
+const teamProvider = CredentialsProvider({
+  id: TEAM_PROVIDER_ID,
+  name: "Team login",
+  credentials: {
+    email: { label: "Email", type: "email" },
+    password: { label: "Password", type: "password" },
+  },
+  authorize(credentials) {
+    const email = credentials?.email ?? "";
+    const password = credentials?.password ?? "";
+    if (!verifyTeamCredentials(email, password)) return null;
+    return { id: TEAM_USER.id, name: TEAM_USER.name, email: TEAM_USER.email };
+  },
+});
+
+/**
+ * NextAuth v4 configuration (FR-022, plan §7). Sessions are stateless JWTs. Two
+ * ways in, both granting the same full owner access: GitHub OAuth (allowlisted by
+ * `OWNER_GITHUB_LOGIN` / `OWNER_GITHUB_ORG`), and an optional shared team
+ * email+password login (`TEAM_LOGIN_PASSWORD`; see team-login.ts) so the whole
+ * team can work without individual GitHub accounts.
  *
  * The GitHub `login` is also persisted on the JWT (jwt callback) so server-side
  * guards — e.g. `src/lib/oauth/session.ts` used by the OAuth/connections routes —
@@ -24,21 +52,27 @@ import { isOrgMember } from "@/lib/oauth/github-org";
  * computed once here and stamped as `owner: true` on the JWT so per-request
  * guards can trust it cheaply (see `src/lib/oauth/session.ts`).
  */
+const providers: NextAuthOptions["providers"] = [
+  GitHubProvider({
+    clientId: env.GITHUB_CLIENT_ID,
+    clientSecret: env.GITHUB_CLIENT_SECRET,
+    // `read:org` lets us verify org membership; `read:user` covers the profile.
+    authorization: { params: { scope: "read:user read:org" } },
+  }),
+];
+if (teamLoginEnabled()) providers.push(teamProvider);
+
 export const authOptions: NextAuthOptions = {
-  providers: [
-    GitHubProvider({
-      clientId: env.GITHUB_CLIENT_ID,
-      clientSecret: env.GITHUB_CLIENT_SECRET,
-      // `read:org` lets us verify org membership; `read:user` covers the profile.
-      authorization: { params: { scope: "read:user read:org" } },
-    }),
-  ],
+  providers,
   session: { strategy: "jwt" },
   secret: env.NEXTAUTH_SECRET,
   pages: { signIn: "/signin" },
   callbacks: {
-    // Allowlist gate: an owner login, or an active member of the configured org.
+    // Allowlist gate: the shared team login (already validated in `authorize`),
+    // an owner GitHub login, or an active member of the configured org.
     async signIn({ profile, account }) {
+      if (account?.provider === TEAM_PROVIDER_ID) return true;
+
       const login = (profile as GithubProfile | undefined)?.login;
       if (login && isOwnerLogin(login)) return true;
 
