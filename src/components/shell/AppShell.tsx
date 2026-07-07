@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Logo } from "@/components/shell/Logo";
 import { UserMenu } from "@/components/shell/UserMenu";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cx } from "@/components/ui/cx";
@@ -149,7 +150,10 @@ export function AppShell({
       {/* Sidebar (>= md) */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface md:flex">
         <div className="flex h-14 items-center border-b border-border px-5">
-          <span className="text-sm font-semibold text-text">Social Autopilot</span>
+          <span className="flex items-center gap-2 text-sm font-semibold text-text">
+            <Logo size={20} />
+            Social Autopilot
+          </span>
         </div>
         <div className="flex-1 p-3">
           <NavList isActive={isActive} />
@@ -171,7 +175,10 @@ export function AppShell({
               <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
             </svg>
           </button>
-          <span className="text-sm font-semibold text-text md:hidden">Social Autopilot</span>
+          <span className="flex items-center gap-2 text-sm font-semibold text-text md:hidden">
+            <Logo size={20} />
+            Social Autopilot
+          </span>
           {/* Page-title slot / spacer */}
           <div className="flex-1" />
           <div className="hidden sm:block">
@@ -196,7 +203,10 @@ export function AppShell({
             className="absolute left-0 top-0 flex h-dvh w-72 max-w-[80vw] flex-col border-r border-border bg-surface"
           >
             <div className="flex h-14 items-center justify-between border-b border-border px-5">
-              <span className="text-sm font-semibold text-text">Social Autopilot</span>
+              <span className="flex items-center gap-2 text-sm font-semibold text-text">
+            <Logo size={20} />
+            Social Autopilot
+          </span>
               <button
                 type="button"
                 onClick={closeDrawer}
