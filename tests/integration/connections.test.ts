@@ -44,43 +44,60 @@ describe("GET /api/connections (FR-018/020)", () => {
     expect(li?.expiresAt).toBe("2030-01-01T00:00:00.000Z");
 
     const x = body.find((c) => c.platform === "X");
-    // X auto-renews regardless of current connection status.
+    // Disconnected X has no stored refresh token, so it does not auto-renew yet
+    // (the card only surfaces auto-renew for CONNECTED accounts anyway).
     expect(x).toMatchObject({
       status: "DISCONNECTED",
       autoPublish: false,
       expiresAt: null,
-      autoRenews: true,
+      autoRenews: false,
     });
   });
 
-  it("flags X/TikTok/YouTube as auto-renewing; LinkedIn/Meta as not (FR-020)", async () => {
+  it("auto-renews: Meta always; refresh providers only while holding a refresh token (FR-020)", async () => {
+    findMany.mockResolvedValue([
+      // Refresh provider WITH a stored refresh token → auto-renews.
+      { platform: "X", status: "CONNECTED", expiresAt: null, autoPublish: false, refreshToken: "enc(x)" },
+      // Meta Page token is non-expiring → auto-renews even with no refresh token.
+      { platform: "FACEBOOK", status: "CONNECTED", expiresAt: null, autoPublish: false, refreshToken: null },
+      // Refresh provider WITHOUT a refresh token (LinkedIn app not provisioned) → honest expiry.
+      {
+        platform: "LINKEDIN",
+        status: "CONNECTED",
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        autoPublish: false,
+        refreshToken: null,
+      },
+    ]);
+
     const res = await GET(req());
     const body = (await res.json()) as Array<{ platform: string; autoRenews: boolean }>;
     const autoRenews = Object.fromEntries(body.map((c) => [c.platform, c.autoRenews]));
-    expect(autoRenews).toEqual({
-      X: true,
-      TIKTOK: true,
-      YOUTUBE: true,
-      LINKEDIN: false,
-      FACEBOOK: false,
-      INSTAGRAM: false,
-    });
+
+    expect(autoRenews.X).toBe(true); // refresh provider + token
+    expect(autoRenews.FACEBOOK).toBe(true); // Meta non-expiring
+    expect(autoRenews.INSTAGRAM).toBe(true); // Meta non-expiring (missing row)
+    expect(autoRenews.LINKEDIN).toBe(false); // refresh provider, no token → honest
+    expect(autoRenews.TIKTOK).toBe(false); // missing row → no token
+    expect(autoRenews.YOUTUBE).toBe(false); // missing row → no token
   });
 
-  it("NEVER exposes token material and never selects token columns", async () => {
+  it("NEVER exposes token material in the response", async () => {
     findMany.mockResolvedValue([
-      { platform: "X", status: "CONNECTED", expiresAt: null, autoPublish: false },
+      { platform: "X", status: "CONNECTED", expiresAt: null, autoPublish: false, refreshToken: "enc(x)" },
     ]);
 
     const res = await GET(req());
     const raw = await res.text();
-    expect(raw).not.toMatch(/accessToken|refreshToken/i);
+    // No token ciphertext value leaks into the JSON (only the derived boolean).
+    expect(raw).not.toContain("enc(x)");
+    expect(raw).not.toMatch(/accessToken/i);
 
-    // The query explicitly selects only non-secret columns.
+    // accessToken is never even read; refreshToken is read ONLY to derive the boolean.
     const select = findMany.mock.calls[0]?.[0]?.select;
     expect(select).toBeDefined();
     expect(select.accessToken).toBeUndefined();
-    expect(select.refreshToken).toBeUndefined();
+    expect(select.refreshToken).toBe(true);
   });
 
   it("401 when not the owner", async () => {

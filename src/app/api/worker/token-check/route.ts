@@ -1,6 +1,6 @@
 import { sendAlert } from "@/lib/alert";
 import { env } from "@/lib/env";
-import { PLATFORM_PROVIDER, providerSupportsRefresh } from "@/lib/oauth/config";
+import { accountAutoRenews } from "@/lib/oauth/config";
 import { prisma } from "@/lib/prisma";
 
 // Uses prisma (pg adapter) — Node runtime only.
@@ -47,8 +47,10 @@ async function handle(request: Request): Promise<Response> {
 
   let alerted = 0;
   for (const acct of accounts) {
-    // Refreshable providers (X/TikTok/Google) renew themselves — no human needed.
-    if (providerSupportsRefresh(PLATFORM_PROVIDER[acct.platform])) continue;
+    // Skip accounts that truly auto-renew — Meta's non-expiring Page token, or a
+    // refresh-capable provider that actually holds a refresh token (X/TikTok/Google,
+    // and LinkedIn once provisioned). Only genuinely-expiring tokens get a reminder.
+    if (accountAutoRenews(acct.platform, Boolean(acct.refreshToken))) continue;
 
     // Throttle so a still-unreconnected account doesn't alert on every run.
     const meta = (acct.metadata as Record<string, unknown> | null) ?? {};

@@ -1,6 +1,6 @@
 import type { AccountStatus, Platform } from "@prisma/client";
 
-import { platformAutoRenews } from "@/lib/oauth/config";
+import { accountAutoRenews } from "@/lib/oauth/config";
 import { parsePlatformSlug } from "@/lib/oauth/platform";
 import { requireOwner } from "@/lib/oauth/session";
 import { prisma } from "@/lib/prisma";
@@ -46,8 +46,15 @@ export async function GET(request: Request): Promise<Response> {
   if (!(await requireOwner(request))) return unauthorized();
 
   const accounts = await prisma.platformAccount.findMany({
-    // Explicit select — token columns are never read into this response.
-    select: { platform: true, status: true, expiresAt: true, autoPublish: true },
+    // Explicit select — token ciphertext is never returned. `refreshToken` is read
+    // only to derive the boolean `autoRenews` (its value never leaves this route).
+    select: {
+      platform: true,
+      status: true,
+      expiresAt: true,
+      autoPublish: true,
+      refreshToken: true,
+    },
   });
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
 
@@ -58,7 +65,7 @@ export async function GET(request: Request): Promise<Response> {
       status: account?.status ?? "DISCONNECTED",
       expiresAt: account?.expiresAt?.toISOString() ?? null,
       autoPublish: account?.autoPublish ?? false,
-      autoRenews: platformAutoRenews(platform),
+      autoRenews: accountAutoRenews(platform, Boolean(account?.refreshToken)),
     };
   });
 

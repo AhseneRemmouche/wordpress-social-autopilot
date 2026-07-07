@@ -116,14 +116,42 @@ describe("tokens (FR-019/FR-020, Principle VII)", () => {
     expect(upd?.data.refreshToken).toBeUndefined(); // not rotated
   });
 
-  it("marks TOKEN_EXPIRED (no fetch) when the provider has no refresh support (LinkedIn)", async () => {
-    const acc = account({ platform: "LINKEDIN" });
+  it("marks TOKEN_EXPIRED (no fetch) when the provider has no refresh grant (Meta)", async () => {
+    // Meta uses no grant_type=refresh_token flow (its Page token is non-expiring),
+    // so a direct refresh attempt fails closed without any network call.
+    const acc = account({ platform: "FACEBOOK" });
 
     await expect(refreshAccessToken(acc)).rejects.toBeInstanceOf(TokenError);
     expect(fetchMock).not.toHaveBeenCalled();
     const upd = updateCall();
-    expect(upd?.where).toEqual({ platform: "LINKEDIN" });
+    expect(upd?.where).toEqual({ platform: "FACEBOOK" });
     expect(upd?.data.status).toBe("TOKEN_EXPIRED");
+  });
+
+  it("refreshes LinkedIn via client_id/client_secret body when a refresh token is present", async () => {
+    const acc = account({ platform: "LINKEDIN", expiresAt: new Date(Date.now() - 1000) });
+    fetchMock.mockResolvedValue(
+      json({ access_token: "li-access", refresh_token: "li-refresh", expires_in: 5_184_000 }),
+    );
+
+    const token = await getValidAccessToken(acc);
+
+    expect(token).toBe("li-access");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://www.linkedin.com/oauth/v2/accessToken");
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = init.body as URLSearchParams;
+    expect(body.get("grant_type")).toBe("refresh_token");
+    expect(body.get("refresh_token")).toBe("refresh-1");
+    expect(body.get("client_id")).toBeTruthy();
+    expect(body.get("client_secret")).toBeTruthy();
+    // LinkedIn uses body credentials, not Basic auth (that's X).
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+
+    // Rotated refresh token + new access token persisted.
+    const upd = updateCall();
+    expect(upd?.data.accessToken).toBe("enc(li-access)");
+    expect(upd?.data.refreshToken).toBe("enc(li-refresh)");
   });
 
   it("marks TOKEN_EXPIRED (no fetch) when the refresh token is missing", async () => {

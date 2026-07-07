@@ -162,9 +162,12 @@ async function exchangeMeta(
   }
 
   const base: ExchangeResult = {
-    // Page access token is what publishing uses; it is long-lived (no refresh).
+    // The Page access token is what publishing uses. A Page token derived from a
+    // long-lived user token does NOT time-expire (it only breaks on revocation),
+    // so store no expiry — it never needs a reconnect. (The user token's
+    // `expires_in` is the user token's clock, not the Page token's.)
     accessToken: page.access_token,
-    expiresAt: expiresAtFrom(longLived.expires_in),
+    expiresAt: null,
     scope: longLived.scope ?? shortLived.scope,
     externalAccountId: page.id,
     fbPageId: page.id,

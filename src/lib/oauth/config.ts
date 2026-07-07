@@ -31,25 +31,55 @@ export const PLATFORM_PROVIDER: Record<Platform, OAuthProvider> = {
 };
 
 /**
- * Providers that issue a usable refresh token, so the app renews their
- * (short-lived) access tokens automatically instead of ever needing a manual
- * reconnect. LinkedIn and Meta don't refresh — their long-lived tokens expire
- * (~60 days) and require reconnect. Single source of truth for both the token
- * refresh logic (`tokens.ts`) and the "Auto-renews" connections UI.
+ * Providers whose tokens auto-renew via a `grant_type=refresh_token` grant, so
+ * the app renews their (short-lived) access tokens automatically instead of ever
+ * needing a manual reconnect. Single source of truth for the token refresh logic
+ * in `tokens.ts`.
+ *
+ * LinkedIn is included: it issues a ~1-year refresh token *when the app is granted
+ * refresh-token access*. The refresh path is a no-op until a refresh token is
+ * actually stored, so a non-provisioned LinkedIn app degrades safely (see
+ * {@link accountAutoRenews}).
  */
-const REFRESH_PROVIDERS: ReadonlySet<OAuthProvider> = new Set(["X", "TIKTOK", "GOOGLE"]);
+const REFRESH_PROVIDERS: ReadonlySet<OAuthProvider> = new Set([
+  "X",
+  "TIKTOK",
+  "GOOGLE",
+  "LINKEDIN",
+]);
+
+/**
+ * Providers whose stored token never time-expires. Meta's Page access token —
+ * derived from a long-lived user token — does not expire (it only breaks on
+ * revocation: app removal, password change, Page-role loss), so Facebook and
+ * Instagram need neither a refresh grant nor a reconnect. Meta uses no
+ * `grant_type=refresh_token` flow, so it stays OUT of REFRESH_PROVIDERS (nothing
+ * to refresh) while still auto-renewing in effect.
+ */
+const NON_EXPIRING_PROVIDERS: ReadonlySet<OAuthProvider> = new Set(["META"]);
 
 /** Whether a provider's tokens auto-renew via a refresh grant. */
 export function providerSupportsRefresh(provider: OAuthProvider): boolean {
   return REFRESH_PROVIDERS.has(provider);
 }
 
+/** Whether a provider's stored token never time-expires (Meta Page token). */
+export function providerIsNonExpiring(provider: OAuthProvider): boolean {
+  return NON_EXPIRING_PROVIDERS.has(provider);
+}
+
 /**
- * Whether a platform's tokens auto-renew (X/TikTok/YouTube) rather than expiring
- * and needing reconnect (LinkedIn/Facebook/Instagram). Drives the connections UI.
+ * Whether an account's token effectively auto-renews (never needs a manual
+ * reconnect). True when the provider's token is non-expiring (Meta), or when it
+ * refreshes AND a refresh token is actually stored. A LinkedIn account with no
+ * refresh token (app not provisioned for them) is honestly NOT auto-renewing.
+ * Drives the connections "Auto-renews" label and the token-expiry reminder.
  */
-export function platformAutoRenews(platform: Platform): boolean {
-  return providerSupportsRefresh(PLATFORM_PROVIDER[platform]);
+export function accountAutoRenews(platform: Platform, hasRefreshToken: boolean): boolean {
+  const provider = PLATFORM_PROVIDER[platform];
+  if (providerIsNonExpiring(provider)) return true;
+  if (providerSupportsRefresh(provider)) return hasRefreshToken;
+  return false;
 }
 
 export const OAUTH_CONFIGS: Record<OAuthProvider, OAuthConfig> = {
