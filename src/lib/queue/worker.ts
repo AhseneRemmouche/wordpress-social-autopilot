@@ -21,15 +21,25 @@ export interface TickResult {
   published: number;
 }
 
-/** Run the generation pass: process every not-yet-generated post. */
-export async function runGenerationPass(limit = 25): Promise<number> {
+/**
+ * Wall-clock budget for one tick (ms). The serverless runner (Netlify) kills a
+ * synchronous function at ~26s, so the tick stops *starting* new work past this
+ * deadline and leaves the rest for the next tick — per-item isolation and the
+ * `generatedAt IS NULL` / `status=QUEUED` selectors make a resumed tick safe.
+ */
+export const TICK_BUDGET_MS = 20_000;
+
+/** Run the generation pass: process not-yet-generated posts until the deadline. */
+export async function runGenerationPass(limit = 25, deadline = Infinity): Promise<number> {
   const posts = await prisma.wordPressPost.findMany({
     where: { generatedAt: null },
     orderBy: { receivedAt: "asc" },
     take: limit,
   });
 
+  let processed = 0;
   for (const post of posts) {
+    if (Date.now() > deadline) break; // out of budget → resume next tick
     try {
       await generateForPost(post);
     } catch (error) {
@@ -37,34 +47,42 @@ export async function runGenerationPass(limit = 25): Promise<number> {
       // is unexpected (e.g. the final stamp). Log without secrets and continue.
       console.error(`[worker] generation failed for post ${post.id}:`, errMsg(error));
     }
+    processed++;
   }
 
-  return posts.length;
+  return processed;
 }
 
-/** Run the publish pass: drain every due job. */
-export async function runPublishPass(limit = 50): Promise<number> {
+/** Run the publish pass: drain due jobs until the deadline. */
+export async function runPublishPass(limit = 50, deadline = Infinity): Promise<number> {
   const jobs = await prisma.publishJob.findMany({
     where: { status: "QUEUED", nextRunAt: { lte: new Date() } },
     orderBy: { nextRunAt: "asc" },
     take: limit,
   });
 
+  let processed = 0;
   for (const job of jobs) {
+    if (Date.now() > deadline) break; // out of budget → resume next tick
     try {
       await processJob(job.id);
     } catch (error) {
       console.error(`[worker] publish failed for job ${job.id}:`, errMsg(error));
     }
+    processed++;
   }
 
-  return jobs.length;
+  return processed;
 }
 
-/** Run one full tick (generation then publish). Returns how many of each ran. */
-export async function runTick(): Promise<TickResult> {
-  const generated = await runGenerationPass();
-  const published = await runPublishPass();
+/**
+ * Run one full tick (generation then publish), bounded by `budgetMs` so a large
+ * backlog can't run past the serverless timeout. Returns how many of each ran.
+ */
+export async function runTick(budgetMs = TICK_BUDGET_MS): Promise<TickResult> {
+  const deadline = Date.now() + budgetMs;
+  const generated = await runGenerationPass(25, deadline);
+  const published = await runPublishPass(50, deadline);
   return { generated, published };
 }
 

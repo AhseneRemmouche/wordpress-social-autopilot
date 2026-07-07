@@ -22,17 +22,36 @@ import { backoffMs } from "@/lib/queue/backoff";
  * All audit context is secret-free (the audit writer also redacts).
  */
 export async function processJob(jobId: string): Promise<void> {
+  // --- Atomic claim: exactly one runner can flip QUEUED → RUNNING. ---
+  // Two overlapping ticks would otherwise both read a QUEUED job and double-post
+  // (a real incident on this project). updateMany is a single conditional write;
+  // count === 0 means another runner won the claim, or the job is gone/terminal.
+  const claim = await prisma.publishJob.updateMany({
+    where: { id: jobId, status: "QUEUED" },
+    data: { status: "RUNNING" },
+  });
+  if (claim.count === 0) return;
+
   const job = await prisma.publishJob.findUnique({
     where: { id: jobId },
     include: { content: true },
   });
-
-  // Already claimed, deleted, or terminal — nothing to do.
-  if (!job || job.status !== "QUEUED") return;
+  if (!job) return; // deleted between claim and read (shouldn't happen)
 
   const content = job.content;
   const platform = content.platform;
   const attempt = job.attempts + 1;
+
+  // --- Idempotency guard: the content is already published (a duplicate job, or
+  // a retry of a publish whose success response was lost) → settle the job and do
+  // NOT hit the platform API again. ---
+  if (content.status === "PUBLISHED") {
+    await prisma.publishJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", attempts: attempt, lastError: null },
+    });
+    return;
+  }
 
   await writeAudit({ contentId: content.id, platform, attempt, outcome: "ATTEMPT" });
 
@@ -50,12 +69,6 @@ export async function processJob(jobId: string): Promise<void> {
     return;
   }
 
-  // Claim the job for this run.
-  await prisma.publishJob.update({
-    where: { id: job.id },
-    data: { status: "RUNNING", attempts: attempt },
-  });
-
   const result = await runPublish(content, account, platform);
 
   // --- Success ---
@@ -63,7 +76,7 @@ export async function processJob(jobId: string): Promise<void> {
     await prisma.$transaction([
       prisma.publishJob.update({
         where: { id: job.id },
-        data: { status: "SUCCEEDED", lastError: null },
+        data: { status: "SUCCEEDED", attempts: attempt, lastError: null },
       }),
       prisma.generatedContent.update({
         where: { id: content.id },
@@ -85,7 +98,7 @@ export async function processJob(jobId: string): Promise<void> {
     const runAt = new Date(Date.now() + backoffMs(attempt));
     await prisma.publishJob.update({
       where: { id: job.id },
-      data: { status: "QUEUED", nextRunAt: runAt, lastError: result.error },
+      data: { status: "QUEUED", attempts: attempt, nextRunAt: runAt, lastError: result.error },
     });
     await writeAudit({
       contentId: content.id,
@@ -133,7 +146,7 @@ async function failPermanently(
   await prisma.$transaction([
     prisma.publishJob.update({
       where: { id: jobId },
-      data: { status: "FAILED", lastError: error },
+      data: { status: "FAILED", attempts: attempt, lastError: error },
     }),
     prisma.generatedContent.update({
       where: { id: contentId },
