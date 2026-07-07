@@ -67,6 +67,22 @@ describe("runGenerationPass (FR-030 — per-post isolation)", () => {
     const arg = findPosts.mock.calls[0]?.[0];
     expect(arg.where).toEqual({ generatedAt: null });
   });
+
+  it("stops starting work once the deadline has passed (budget guard)", async () => {
+    findPosts.mockResolvedValue([{ id: "p1" }, { id: "p2" }]);
+    const count = await runGenerationPass(25, Date.now() - 1); // deadline already past
+    expect(count).toBe(0);
+    expect(h.generateMock).not.toHaveBeenCalled(); // no post started past the budget
+  });
+});
+
+describe("runPublishPass — budget", () => {
+  it("stops draining once the deadline has passed", async () => {
+    findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }]);
+    const count = await runPublishPass(50, Date.now() - 1);
+    expect(count).toBe(0);
+    expect(h.processJobMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("runTick", () => {

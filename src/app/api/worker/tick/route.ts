@@ -5,8 +5,10 @@ import { runTick } from "@/lib/queue/worker";
 export const runtime = "nodejs";
 // Never cache: each call must drain the live queue.
 export const dynamic = "force-dynamic";
-// A tick can generate for six platforms + publish; allow a long budget (Vercel
-// clamps to the plan maximum). Heavy backlogs favour the long-lived worker.
+// Advisory only: Vercel honours maxDuration, but Netlify (our deploy target) caps
+// synchronous functions at ~26s regardless. The real guard is runTick's internal
+// TICK_BUDGET_MS wall-clock budget, which stops starting work before the cap and
+// resumes on the next tick. Heavy backlogs favour the long-lived worker.
 export const maxDuration = 300;
 
 function json(data: unknown, status: number): Response {

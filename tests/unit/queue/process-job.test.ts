@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({ publishMock: vi.fn() }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    publishJob: { findUnique: vi.fn(), update: vi.fn() },
+    publishJob: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     platformAccount: { findUnique: vi.fn() },
     generatedContent: { update: vi.fn() },
     // $transaction just runs the array of (already-issued) promises.
@@ -27,6 +27,7 @@ import { processJob } from "@/lib/queue/process-job";
 
 const findJob = prisma.publishJob.findUnique as unknown as Mock;
 const updateJob = prisma.publishJob.update as unknown as Mock;
+const claimJob = prisma.publishJob.updateMany as unknown as Mock;
 const findAccount = prisma.platformAccount.findUnique as unknown as Mock;
 const updateContent = prisma.generatedContent.update as unknown as Mock;
 const writeAuditMock = writeAudit as unknown as Mock;
@@ -72,6 +73,7 @@ function contentUpdateStatus(): unknown {
 beforeEach(() => {
   findJob.mockReset().mockResolvedValue(jobRow());
   updateJob.mockReset().mockResolvedValue({});
+  claimJob.mockReset().mockResolvedValue({ count: 1 }); // claim wins by default
   findAccount.mockReset().mockResolvedValue(CONNECTED);
   updateContent.mockReset().mockResolvedValue({});
   writeAuditMock.mockReset();
@@ -151,16 +153,38 @@ describe("processJob (plan §8 / FR-016/027/030)", () => {
     expect(requeue?.lastError).toContain("socket hang up");
   });
 
-  it("skips a job that is not QUEUED (already claimed)", async () => {
-    findJob.mockResolvedValue(jobRow({ status: "RUNNING" }));
+  it("loses the atomic claim (count 0) → no publish, no writes (double-claim guard)", async () => {
+    claimJob.mockResolvedValue({ count: 0 }); // another runner claimed it, or it's gone/terminal
     await processJob("job-1");
     expect(h.publishMock).not.toHaveBeenCalled();
     expect(updateJob).not.toHaveBeenCalled();
+    expect(findJob).not.toHaveBeenCalled(); // returns before loading the job
+    expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("skips a missing job", async () => {
+  it("claims atomically via updateMany(where status=QUEUED → RUNNING)", async () => {
+    h.publishMock.mockResolvedValue({ ok: true, externalId: "urn:li:1" });
+    await processJob("job-1");
+    const claim = claimJob.mock.calls[0]?.[0];
+    expect(claim.where).toEqual({ id: "job-1", status: "QUEUED" });
+    expect(claim.data).toEqual({ status: "RUNNING" });
+  });
+
+  it("content already PUBLISHED → settles job SUCCEEDED without re-posting (idempotency)", async () => {
+    findJob.mockResolvedValue({
+      ...jobRow(),
+      content: { ...jobRow().content, status: "PUBLISHED" },
+    });
+    await processJob("job-1");
+    expect(h.publishMock).not.toHaveBeenCalled();
+    expect(jobUpdateFor("SUCCEEDED")).toBeDefined();
+    expect(updateContent).not.toHaveBeenCalled(); // no re-publish of the content
+  });
+
+  it("skips a missing job after a claim race", async () => {
     findJob.mockResolvedValue(null);
     await processJob("gone");
     expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(h.publishMock).not.toHaveBeenCalled();
   });
 });

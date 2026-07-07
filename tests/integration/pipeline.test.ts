@@ -71,6 +71,14 @@ const db = vi.hoisted(() => {
           ? { ...row, content: content.find((c) => c.id === row.contentId) }
           : row;
       },
+      findFirst: async ({ where }: any = {}) => {
+        const row = jobs.find((j) => {
+          if (where?.contentId && j.contentId !== where.contentId) return false;
+          if (where?.status?.in && !where.status.in.includes(j.status)) return false;
+          return true;
+        });
+        return row ?? null;
+      },
       findMany: async ({ where, take }: any = {}) => {
         let rows = jobs;
         if (where?.status) rows = rows.filter((j) => j.status === where.status);
@@ -81,6 +89,15 @@ const db = vi.hoisted(() => {
         const row = jobs.find((j) => j.id === where.id);
         Object.assign(row, data);
         return row;
+      },
+      updateMany: async ({ where, data }: any) => {
+        const rows = jobs.filter((j) => {
+          if (where?.id && j.id !== where.id) return false;
+          if (where?.status && j.status !== where.status) return false;
+          return true;
+        });
+        rows.forEach((r) => Object.assign(r, data));
+        return { count: rows.length };
       },
     },
     $transaction: async (ops: any) =>
