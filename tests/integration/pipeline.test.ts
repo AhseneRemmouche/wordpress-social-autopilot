@@ -251,7 +251,7 @@ describe("full pipeline: webhook → generation → publish (SC-001/SC-004, Prin
 
     // 3. Publish pass → connected auto-publish platforms PUBLISHED.
     const published = await runPublishPass();
-    expect(published).toBe(3);
+    expect(published).toEqual({ processed: 3, failed: 0 });
 
     expect(byPlatform("LINKEDIN").status).toBe("PUBLISHED");
     expect(byPlatform("FACEBOOK").status).toBe("PUBLISHED");

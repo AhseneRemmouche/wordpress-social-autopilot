@@ -1,9 +1,13 @@
 import type { PlatformAccount } from "@prisma/client";
 
+import { sendAlert } from "@/lib/alert";
 import { writeAudit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { getPublisher } from "@/lib/publishers";
 import { backoffMs } from "@/lib/queue/backoff";
+
+/** The disposition of one job run, for the tick's counts + alerting. */
+export type ProcessOutcome = "published" | "requeued" | "failed" | "manual" | "skipped";
 
 /**
  * Process a single publish job (plan §8, FR-016/FR-027/FR-030).
@@ -21,7 +25,7 @@ import { backoffMs } from "@/lib/queue/backoff";
  * One job's outcome never affects another platform's (per-platform isolation).
  * All audit context is secret-free (the audit writer also redacts).
  */
-export async function processJob(jobId: string): Promise<void> {
+export async function processJob(jobId: string): Promise<ProcessOutcome> {
   // --- Atomic claim: exactly one runner can flip QUEUED → RUNNING. ---
   // Two overlapping ticks would otherwise both read a QUEUED job and double-post
   // (a real incident on this project). updateMany is a single conditional write;
@@ -30,13 +34,13 @@ export async function processJob(jobId: string): Promise<void> {
     where: { id: jobId, status: "QUEUED" },
     data: { status: "RUNNING" },
   });
-  if (claim.count === 0) return;
+  if (claim.count === 0) return "skipped";
 
   const job = await prisma.publishJob.findUnique({
     where: { id: jobId },
     include: { content: true },
   });
-  if (!job) return; // deleted between claim and read (shouldn't happen)
+  if (!job) return "skipped"; // deleted between claim and read (shouldn't happen)
 
   const content = job.content;
   const platform = content.platform;
@@ -50,7 +54,7 @@ export async function processJob(jobId: string): Promise<void> {
       where: { id: job.id },
       data: { status: "SUCCEEDED", attempts: attempt, lastError: null },
     });
-    return;
+    return "skipped";
   }
 
   await writeAudit({ contentId: content.id, platform, attempt, outcome: "ATTEMPT" });
@@ -58,7 +62,7 @@ export async function processJob(jobId: string): Promise<void> {
   // --- Account-status guard (FR-020): no live connection → hold for manual. ---
   const account = await prisma.platformAccount.findUnique({ where: { platform } });
   if (!account || account.status !== "CONNECTED") {
-    await failPermanently(
+    return failPermanently(
       job.id,
       content.id,
       platform,
@@ -66,7 +70,6 @@ export async function processJob(jobId: string): Promise<void> {
       "MANUAL_REQUIRED",
       "Account not connected",
     );
-    return;
   }
 
   const result = await runPublish(content, account, platform);
@@ -90,7 +93,7 @@ export async function processJob(jobId: string): Promise<void> {
       outcome: "SUCCESS",
       externalId: result.externalId,
     });
-    return;
+    return "published";
   }
 
   // --- Retryable failure with attempts remaining → re-queue with backoff ---
@@ -107,11 +110,11 @@ export async function processJob(jobId: string): Promise<void> {
       outcome: "FAILURE",
       errorContext: { retryable: true, nextRunAt: runAt.toISOString(), error: result.error },
     });
-    return;
+    return "requeued";
   }
 
   // --- Permanent failure (non-retryable, or retries exhausted) ---
-  await failPermanently(job.id, content.id, platform, attempt, "FAILED", result.error);
+  return failPermanently(job.id, content.id, platform, attempt, "FAILED", result.error);
 }
 
 type RunResult =
@@ -134,7 +137,11 @@ async function runPublish(
   }
 }
 
-/** Terminal failure: mark the job FAILED and the content to the given status. */
+/**
+ * Terminal failure: mark the job FAILED and the content to the given status.
+ * Returns "failed" for a real publish failure (which also fires an operator
+ * alert) and "manual" for the expected no-connection / no-media hold (no alert).
+ */
 async function failPermanently(
   jobId: string,
   contentId: string,
@@ -142,7 +149,7 @@ async function failPermanently(
   attempt: number,
   contentStatus: "FAILED" | "MANUAL_REQUIRED",
   error: string,
-): Promise<void> {
+): Promise<"failed" | "manual"> {
   await prisma.$transaction([
     prisma.publishJob.update({
       where: { id: jobId },
@@ -160,4 +167,15 @@ async function failPermanently(
     outcome: "FAILURE",
     errorContext: { retryable: false, contentStatus, error },
   });
+
+  // Alert only on a genuine publish failure — MANUAL_REQUIRED is an expected hold
+  // (not connected / no media), not an incident. failPermanently is the single
+  // FAILED transition, so this fires once per failure (no extra throttling).
+  if (contentStatus === "FAILED") {
+    await sendAlert(
+      `⚠️ Publish failed (${platform}) after ${attempt} attempt(s): ${error} — content ${contentId}`,
+    );
+    return "failed";
+  }
+  return "manual";
 }

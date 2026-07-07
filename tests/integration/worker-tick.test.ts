@@ -4,7 +4,7 @@ import { type Mock, beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ env: { CRON_SECRET: undefined as string | undefined } }));
 vi.mock("@/lib/env", () => ({ env: h.env }));
 vi.mock("@/lib/queue/worker", () => ({
-  runTick: vi.fn(async () => ({ generated: 2, published: 3 })),
+  runTick: vi.fn(async () => ({ generated: 2, published: 3, failed: 0 })),
 }));
 
 import { runTick } from "@/lib/queue/worker";
@@ -42,7 +42,7 @@ describe("/api/worker/tick — fail-closed cron runner (Principle II/VII)", () =
 
     const resGet = await GET(req("GET", "Bearer s3cret"));
     expect(resGet.status).toBe(200);
-    expect(await resGet.json()).toEqual({ ok: true, generated: 2, published: 3 });
+    expect(await resGet.json()).toEqual({ ok: true, generated: 2, published: 3, failed: 0 });
 
     const resPost = await POST(req("POST", "Bearer s3cret"));
     expect(resPost.status).toBe(200);

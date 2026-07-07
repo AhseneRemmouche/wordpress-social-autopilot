@@ -73,6 +73,12 @@ export const envSchema = z.object({
   // When set, /api/worker/tick requires `Authorization: Bearer <CRON_SECRET>`.
   // When unset, that endpoint is DISABLED (503) — it never runs open.
   CRON_SECRET: z.string().min(1).optional(),
+
+  // --- Alerts (optional) ---
+  // Slack/Discord/Teams-compatible incoming webhook. When set, the worker posts a
+  // short, secret-free message on a permanent publish failure or a soon-expiring
+  // token. Unset → alerting is a silent no-op.
+  ALERT_WEBHOOK_URL: z.url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

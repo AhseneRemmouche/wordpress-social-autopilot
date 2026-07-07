@@ -29,6 +29,8 @@ export interface ContentPreview {
   featuredImageUrl: string | null;
   /** Link to the live post on the platform once published (FB/LinkedIn/X); null otherwise. */
   publishedUrl: string | null;
+  /** Secret-free reason for a FAILED item (latest publish job's lastError); null otherwise. */
+  lastError: string | null;
 }
 
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -147,6 +149,15 @@ export function PlatformPreviewCard({ content }: { content: ContentPreview }): R
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
           </svg>
         </a>
+      )}
+
+      {status === "FAILED" && content.lastError && (
+        <p
+          role="alert"
+          className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-xs text-danger"
+        >
+          Failed: {content.lastError}
+        </p>
       )}
 
       <p className="mt-3 whitespace-pre-wrap break-words text-sm text-text">{content.body}</p>
