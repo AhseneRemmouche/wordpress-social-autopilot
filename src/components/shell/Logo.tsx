@@ -1,0 +1,45 @@
+import type { ReactElement } from "react";
+
+/**
+ * The Social Autopilot brand mark: a WordPress post (the document) broadcasting
+ * out to social channels (the nodes) — the app's whole job in one glyph. Shared
+ * with the favicon (`src/app/icon.svg`). Decorative next to the wordmark, so it
+ * is aria-hidden.
+ */
+export function Logo({ size = 22 }: { size?: number }): ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <defs>
+        <linearGradient id="sa-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#2563EB" />
+          <stop offset="1" stopColor="#4F46E5" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="7" fill="url(#sa-bg)" />
+      <g stroke="#FFFFFF" strokeWidth="1.7" strokeLinecap="round" fill="none">
+        <path d="M13.5 16 Q19 11 24 8.5" />
+        <path d="M13.5 16 H26" />
+        <path d="M13.5 16 Q19 21 24 23.5" />
+      </g>
+      <rect x="5.5" y="10" width="8" height="12" rx="2" fill="#FFFFFF" />
+      <g fill="#2563EB">
+        <rect x="7.4" y="12.4" width="4.2" height="1.2" rx="0.6" />
+        <rect x="7.4" y="15.2" width="4.2" height="1.2" rx="0.6" />
+        <rect x="7.4" y="18" width="2.6" height="1.2" rx="0.6" />
+      </g>
+      <g fill="#FFFFFF">
+        <circle cx="24" cy="8.5" r="2.5" />
+        <circle cx="26" cy="16" r="2.5" />
+        <circle cx="24" cy="23.5" r="2.5" />
+      </g>
+    </svg>
+  );
+}
