@@ -40,6 +40,7 @@ const pending: ContentPreview = {
   copyText: "Hello world\n\n#a\nhttps://blog.example.com/p",
   featuredImageUrl: null,
   publishedUrl: null,
+  lastError: null,
 };
 
 beforeEach(() => {
@@ -103,6 +104,22 @@ describe("PlatformPreviewCard", () => {
     };
     renderWithToast(<PlatformPreviewCard content={published} />);
     expect(screen.queryByRole("link", { name: /view on/i })).not.toBeInTheDocument();
+  });
+
+  it("FAILED card shows the recorded error reason", () => {
+    const failed: ContentPreview = {
+      ...pending,
+      status: "FAILED",
+      lastError: "LinkedIn publish failed (HTTP 400)",
+    };
+    renderWithToast(<PlatformPreviewCard content={failed} />);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/Failed:\s*LinkedIn publish failed \(HTTP 400\)/i);
+  });
+
+  it("non-FAILED card shows no error note", () => {
+    renderWithToast(<PlatformPreviewCard content={{ ...pending, lastError: "should not show" }} />);
+    expect(screen.queryByText(/should not show/i)).not.toBeInTheDocument();
   });
 
   it("YouTube (Manual) card links to where you post it", () => {

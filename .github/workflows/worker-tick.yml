@@ -51,3 +51,9 @@ jobs:
             echo "::error::Worker tick failed with HTTP $http_code"
             exit 1
           fi
+
+          # Surface publish failures without failing the run (they're expected/
+          # transient and already alerted). A green run with a warning = attention.
+          if ! grep -q '"failed":0' response.json; then
+            echo "::warning::Worker tick reported publish failures — check the dashboard/alerts."
+          fi

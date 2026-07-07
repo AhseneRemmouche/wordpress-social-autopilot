@@ -13,6 +13,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
+vi.mock("@/lib/alert", () => ({ sendAlert: vi.fn() }));
 vi.mock("@/lib/publishers", () => ({
   getPublisher: () => ({
     platform: "LINKEDIN",
@@ -21,6 +22,7 @@ vi.mock("@/lib/publishers", () => ({
   }),
 }));
 
+import { sendAlert } from "@/lib/alert";
 import { writeAudit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { processJob } from "@/lib/queue/process-job";
@@ -28,6 +30,7 @@ import { processJob } from "@/lib/queue/process-job";
 const findJob = prisma.publishJob.findUnique as unknown as Mock;
 const updateJob = prisma.publishJob.update as unknown as Mock;
 const claimJob = prisma.publishJob.updateMany as unknown as Mock;
+const alertMock = sendAlert as unknown as Mock;
 const findAccount = prisma.platformAccount.findUnique as unknown as Mock;
 const updateContent = prisma.generatedContent.update as unknown as Mock;
 const writeAuditMock = writeAudit as unknown as Mock;
@@ -77,6 +80,7 @@ beforeEach(() => {
   findAccount.mockReset().mockResolvedValue(CONNECTED);
   updateContent.mockReset().mockResolvedValue({});
   writeAuditMock.mockReset();
+  alertMock.mockReset();
   h.publishMock.mockReset();
 });
 
@@ -186,5 +190,30 @@ describe("processJob (plan §8 / FR-016/027/030)", () => {
     await processJob("gone");
     expect(writeAuditMock).not.toHaveBeenCalled();
     expect(h.publishMock).not.toHaveBeenCalled();
+  });
+
+  it("success → returns 'published' and does not alert", async () => {
+    h.publishMock.mockResolvedValue({ ok: true, externalId: "urn:li:1" });
+    const outcome = await processJob("job-1");
+    expect(outcome).toBe("published");
+    expect(alertMock).not.toHaveBeenCalled();
+  });
+
+  it("permanent publish failure → returns 'failed' and alerts (secret-free)", async () => {
+    h.publishMock.mockResolvedValue({ ok: false, retryable: false, error: "HTTP 400" });
+    const outcome = await processJob("job-1");
+    expect(outcome).toBe("failed");
+    expect(alertMock).toHaveBeenCalledTimes(1);
+    const msg = alertMock.mock.calls[0]?.[0] as string;
+    expect(msg).toContain("LINKEDIN");
+    expect(msg).toContain("HTTP 400");
+    expect(msg).not.toContain("token-123"); // no secrets leak into alerts
+  });
+
+  it("MANUAL_REQUIRED hold (not connected) → returns 'manual' and does NOT alert", async () => {
+    findAccount.mockResolvedValue({ platform: "LINKEDIN", status: "TOKEN_EXPIRED" } as PlatformAccount);
+    const outcome = await processJob("job-1");
+    expect(outcome).toBe("manual");
+    expect(alertMock).not.toHaveBeenCalled(); // expected hold, not an incident
   });
 });

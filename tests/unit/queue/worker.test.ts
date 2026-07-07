@@ -26,19 +26,29 @@ beforeEach(() => {
 });
 
 describe("runPublishPass (FR-030 — per-job isolation)", () => {
-  it("drains every due job even when one throws (batch is not aborted)", async () => {
+  it("drains every due job even when one throws, and counts the failure", async () => {
     findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }, { id: "j3" }]);
     h.processJobMock.mockImplementation((id: string) =>
-      id === "j2" ? Promise.reject(new Error("boom")) : Promise.resolve(),
+      id === "j2" ? Promise.reject(new Error("boom")) : Promise.resolve("published"),
     );
 
-    const count = await runPublishPass();
+    const res = await runPublishPass();
 
-    expect(count).toBe(3);
+    expect(res.processed).toBe(3);
+    expect(res.failed).toBe(1); // j2 threw → counted as a failure
     expect(h.processJobMock).toHaveBeenCalledTimes(3);
-    expect(h.processJobMock).toHaveBeenCalledWith("j1");
-    expect(h.processJobMock).toHaveBeenCalledWith("j2");
     expect(h.processJobMock).toHaveBeenCalledWith("j3"); // ran despite j2 throwing
+  });
+
+  it('counts jobs whose processJob returns "failed"', async () => {
+    findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }]);
+    h.processJobMock.mockImplementation((id: string) =>
+      Promise.resolve(id === "j1" ? "failed" : "published"),
+    );
+
+    const res = await runPublishPass();
+
+    expect(res).toEqual({ processed: 2, failed: 1 });
   });
 
   it("selects only due QUEUED jobs (status QUEUED, nextRunAt <= now)", async () => {
@@ -79,8 +89,8 @@ describe("runGenerationPass (FR-030 — per-post isolation)", () => {
 describe("runPublishPass — budget", () => {
   it("stops draining once the deadline has passed", async () => {
     findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }]);
-    const count = await runPublishPass(50, Date.now() - 1);
-    expect(count).toBe(0);
+    const res = await runPublishPass(50, Date.now() - 1);
+    expect(res).toEqual({ processed: 0, failed: 0 });
     expect(h.processJobMock).not.toHaveBeenCalled();
   });
 });
@@ -89,9 +99,22 @@ describe("runTick", () => {
   it("runs the generation then publish passes and returns the counts", async () => {
     findPosts.mockResolvedValue([{ id: "p1" }]);
     findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }]);
+    h.processJobMock.mockResolvedValue("published");
 
     const result = await runTick();
 
-    expect(result).toEqual({ generated: 1, published: 2 });
+    expect(result).toEqual({ generated: 1, published: 2, failed: 0 });
+  });
+
+  it("includes the failed count from the publish pass", async () => {
+    findPosts.mockResolvedValue([]);
+    findJobs.mockResolvedValue([{ id: "j1" }, { id: "j2" }]);
+    h.processJobMock.mockImplementation((id: string) =>
+      Promise.resolve(id === "j1" ? "failed" : "published"),
+    );
+
+    const result = await runTick();
+
+    expect(result).toEqual({ generated: 0, published: 2, failed: 1 });
   });
 });

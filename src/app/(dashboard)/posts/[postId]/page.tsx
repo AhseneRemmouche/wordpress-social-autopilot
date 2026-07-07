@@ -48,6 +48,12 @@ export default async function PostDetailPage({
             take: 1,
             select: { externalId: true },
           },
+          // Latest job → its secret-free error message (shown on FAILED cards).
+          jobs: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: { lastError: true },
+          },
         },
         orderBy: { platform: "asc" },
       },
@@ -72,6 +78,8 @@ export default async function PostDetailPage({
     featuredImageUrl: post.featuredImageUrl,
     // Link to the live post on the platform (auto-published FB/LinkedIn/X only).
     publishedUrl: buildPostUrl(c.platform, c.auditLogs?.[0]?.externalId ?? null),
+    // Secret-free failure reason for a FAILED item (from the latest publish job).
+    lastError: c.jobs?.[0]?.lastError ?? null,
   }));
 
   const pending: PendingItem[] = content

@@ -18,7 +18,8 @@ import { processJob } from "@/lib/queue/process-job";
 
 export interface TickResult {
   generated: number;
-  published: number;
+  published: number; // jobs processed this tick (drained)
+  failed: number; // jobs that failed permanently this tick
 }
 
 /**
@@ -53,8 +54,13 @@ export async function runGenerationPass(limit = 25, deadline = Infinity): Promis
   return processed;
 }
 
-/** Run the publish pass: drain due jobs until the deadline. */
-export async function runPublishPass(limit = 50, deadline = Infinity): Promise<number> {
+export interface PublishPassResult {
+  processed: number;
+  failed: number;
+}
+
+/** Run the publish pass: drain due jobs until the deadline; count permanent failures. */
+export async function runPublishPass(limit = 50, deadline = Infinity): Promise<PublishPassResult> {
   const jobs = await prisma.publishJob.findMany({
     where: { status: "QUEUED", nextRunAt: { lte: new Date() } },
     orderBy: { nextRunAt: "asc" },
@@ -62,28 +68,33 @@ export async function runPublishPass(limit = 50, deadline = Infinity): Promise<n
   });
 
   let processed = 0;
+  let failed = 0;
   for (const job of jobs) {
     if (Date.now() > deadline) break; // out of budget → resume next tick
     try {
-      await processJob(job.id);
+      if ((await processJob(job.id)) === "failed") failed++;
     } catch (error) {
+      // An unexpected throw (processJob handles publish failures internally) is
+      // itself a failure worth counting/surfacing.
       console.error(`[worker] publish failed for job ${job.id}:`, errMsg(error));
+      failed++;
     }
     processed++;
   }
 
-  return processed;
+  return { processed, failed };
 }
 
 /**
  * Run one full tick (generation then publish), bounded by `budgetMs` so a large
- * backlog can't run past the serverless timeout. Returns how many of each ran.
+ * backlog can't run past the serverless timeout. Returns how many of each ran
+ * plus how many jobs failed permanently (for the tick response + alerting).
  */
 export async function runTick(budgetMs = TICK_BUDGET_MS): Promise<TickResult> {
   const deadline = Date.now() + budgetMs;
   const generated = await runGenerationPass(25, deadline);
-  const published = await runPublishPass(50, deadline);
-  return { generated, published };
+  const publish = await runPublishPass(50, deadline);
+  return { generated, published: publish.processed, failed: publish.failed };
 }
 
 function errMsg(error: unknown): string {

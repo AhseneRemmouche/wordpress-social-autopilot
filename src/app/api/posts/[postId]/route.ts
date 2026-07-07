@@ -17,6 +17,7 @@ interface ContentPreview {
   link: string;
   charCount: number;
   publishedUrl: string | null;
+  lastError: string | null;
 }
 
 interface PostDetailView {
@@ -70,6 +71,11 @@ export async function GET(
             take: 1,
             select: { externalId: true },
           },
+          jobs: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: { lastError: true },
+          },
         },
         orderBy: { platform: "asc" },
       },
@@ -93,6 +99,7 @@ export async function GET(
       link: content.link,
       charCount: content.charCount,
       publishedUrl: buildPostUrl(content.platform, content.auditLogs?.[0]?.externalId ?? null),
+      lastError: content.jobs?.[0]?.lastError ?? null,
     })),
   };
 

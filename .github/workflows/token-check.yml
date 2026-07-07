@@ -1,0 +1,44 @@
+name: Token expiry check
+
+# Daily reminder to reconnect LinkedIn/Meta before their ~60-day tokens lapse
+# (they have no refresh grant). Hits the fail-closed /api/worker/token-check
+# endpoint, which alerts via ALERT_WEBHOOK_URL. Reuses the CRON_SECRET Actions
+# secret already configured for the worker tick.
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # daily ~13:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: token-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check for soon-expiring tokens
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: POST /api/worker/token-check
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TOKEN_CHECK_URL: https://wordpress-social-autopilot.netlify.app/api/worker/token-check
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret is not set on this repository."
+            exit 1
+          fi
+
+          http_code=$(curl --silent --show-error --max-time 60 \
+            --output response.json --write-out "%{http_code}" \
+            --request POST "$TOKEN_CHECK_URL" \
+            --header "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP $http_code"
+          echo "Response: $(cat response.json)"
+
+          if [ "$http_code" != "200" ]; then
+            echo "::error::Token check failed with HTTP $http_code"
+            exit 1
+          fi

@@ -1,3 +1,4 @@
+import { sendAlert } from "@/lib/alert";
 import { env } from "@/lib/env";
 import { runTick } from "@/lib/queue/worker";
 
@@ -43,10 +44,11 @@ async function handle(request: Request): Promise<Response> {
     const result = await runTick();
     return json({ ok: true, ...result }, 200);
   } catch (error) {
-    console.error(
-      "[worker/tick] failed:",
-      error instanceof Error ? error.message : "unknown error",
-    );
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.error("[worker/tick] failed:", message);
+    // A thrown tick (not a per-job publish failure, which alerts itself) means the
+    // whole run aborted — surface it to the operator.
+    await sendAlert(`🛑 Worker tick aborted: ${message}`);
     return json({ ok: false, error: "tick failed" }, 500);
   }
 }
