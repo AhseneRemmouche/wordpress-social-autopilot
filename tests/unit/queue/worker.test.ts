@@ -4,7 +4,7 @@ const h = vi.hoisted(() => ({ processJobMock: vi.fn(), generateMock: vi.fn() }))
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    publishJob: { findMany: vi.fn() },
+    publishJob: { findMany: vi.fn(), updateMany: vi.fn() },
     wordPressPost: { findMany: vi.fn() },
   },
 }));
@@ -12,17 +12,25 @@ vi.mock("@/lib/queue/process-job", () => ({ processJob: h.processJobMock }));
 vi.mock("@/lib/ai/generate", () => ({ generateForPost: h.generateMock }));
 
 import { prisma } from "@/lib/prisma";
-import { runGenerationPass, runPublishPass, runTick } from "@/lib/queue/worker";
+import {
+  reclaimStaleRunningJobs,
+  runGenerationPass,
+  runPublishPass,
+  runTick,
+} from "@/lib/queue/worker";
 
 const findJobs = prisma.publishJob.findMany as unknown as Mock;
+const updateJobs = prisma.publishJob.updateMany as unknown as Mock;
 const findPosts = prisma.wordPressPost.findMany as unknown as Mock;
 
 beforeEach(() => {
   findJobs.mockReset().mockResolvedValue([]);
+  updateJobs.mockReset().mockResolvedValue({ count: 0 });
   findPosts.mockReset().mockResolvedValue([]);
   h.processJobMock.mockReset().mockResolvedValue(undefined);
   h.generateMock.mockReset().mockResolvedValue(undefined);
   vi.spyOn(console, "error").mockImplementation(() => {}); // silence per-item error logs
+  vi.spyOn(console, "warn").mockImplementation(() => {}); // silence reclaim log
 });
 
 describe("runPublishPass (FR-030 — per-job isolation)", () => {
@@ -92,6 +100,29 @@ describe("runPublishPass — budget", () => {
     const res = await runPublishPass(50, Date.now() - 1);
     expect(res).toEqual({ processed: 0, failed: 0 });
     expect(h.processJobMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("reclaimStaleRunningJobs (visibility timeout)", () => {
+  it("resets RUNNING jobs older than the stale threshold back to QUEUED", async () => {
+    updateJobs.mockResolvedValue({ count: 2 });
+
+    const reclaimed = await reclaimStaleRunningJobs();
+
+    expect(reclaimed).toBe(2);
+    const arg = updateJobs.mock.calls[0]?.[0];
+    expect(arg.where.status).toBe("RUNNING");
+    expect(arg.where.updatedAt.lt).toBeInstanceOf(Date); // only jobs stale past the cutoff
+    expect(arg.data.status).toBe("QUEUED");
+  });
+
+  it("runPublishPass reclaims stale RUNNING jobs before selecting due work", async () => {
+    await runPublishPass();
+
+    expect(updateJobs).toHaveBeenCalledTimes(1); // reclaim ran
+    const reclaimArg = updateJobs.mock.calls[0]?.[0];
+    expect(reclaimArg.where.status).toBe("RUNNING");
+    expect(findJobs).toHaveBeenCalledTimes(1); // then the normal QUEUED selection
   });
 });
 
